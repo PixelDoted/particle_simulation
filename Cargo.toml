@@ -1,0 +1,27 @@
+[package]
+name = "particle_simulation"
+version = "0.1.0"
+edition = "2021"
+
+# Enable a small amount of optimization in debug mode
+[profile.dev]
+opt-level = 1
+
+# Enable high optimizations for dependencies (incl. Bevy), but not for our code:
+[profile.dev.package."*"]
+opt-level = 3
+
+[dependencies]
+bytemuck = { version = "1.15.0", features = ["derive"] }
+clap = { version = "4.5.4", features = ["derive"] }
+env_logger = "0.11.3"
+glam = { version = "0.27.0", features = ["bytemuck"] }
+log = "0.4.21"
+rand = "0.8.5"
+tokio = { version = "1.37.0", features = ["full"] }
+wgpu = "0.19.3"
+winit = "0.29.15"
+
+[features]
+default = ["capture"]
+capture = []
