@@ -46,7 +46,7 @@ fn fragment(result: VertexOutput) -> @location(0) vec4<f32> {
     if result.radius == 0.0 {
         discard;
     }
-    
+
     var uv = (result.coord_in.xy - 0.5 * view.size);
     let pos = result.position * vec2<f32>(0.5, -0.5) * 512;
     let radius = result.radius * 155;
@@ -56,7 +56,7 @@ fn fragment(result: VertexOutput) -> @location(0) vec4<f32> {
         discard;
         // return vec4<f32>(1.0);
     }
-    
+
     var color = vec3<f32>(abs(result.velocity * 0.1) * 0.9 + 0.1, 0.1);
     color = aces_tone_map(color);
     return vec4<f32>(color, 1.0);
@@ -75,8 +75,8 @@ fn aces_tone_map(hdr: vec3<f32>) -> vec3<f32> {
     );
     let m2 = mat3x3<f32>(
         1.60475, -0.10208, -0.00327,
-        -0.53108,  1.10813, -0.07276,
-        -0.07367, -0.00605,  1.07602,
+        -0.53108, 1.10813, -0.07276,
+        -0.07367, -0.00605, 1.07602,
     );
     let v = m1 * hdr;
     let a = v * (v + 0.0245786) - 0.000090537;

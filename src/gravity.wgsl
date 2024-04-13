@@ -48,7 +48,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         if i == index {
             continue;
         }
-    
+
         let other = particles[i];
         if other.mass == 0.0 {
             continue;
@@ -71,7 +71,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
             i = i + 1u;
         }
     }
-    
+
     current.position += current.velocity * params.delta_time;
     output[index] = current;
 }

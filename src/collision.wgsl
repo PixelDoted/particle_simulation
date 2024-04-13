@@ -43,21 +43,21 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         if i == index {
             continue;
         }
-    
+
         let other = particles[i];
 
         let oc = other.position - current.position;
         let rr = current.radius + other.radius;
         let oc_sqr_len = dot(oc, oc);
-        if oc_sqr_len <= rr*rr {
+        if oc_sqr_len <= rr * rr {
             let oc_len = sqrt(oc_sqr_len);
             let penetration_depth = rr - oc_len;
             let normal = oc / oc_len;
-            
+
             let pre_solve_normal_vel = dot(pre_vel - other.velocity, normal);
             let normal_vel = dot(current.velocity - other.velocity, normal);
             let restitution = 0.4;
-            
+
             let w0 = 1.0 / current.mass;
             let w1 = 1.0 / other.mass;
 
@@ -69,7 +69,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
             i = i + 1u;
         }
     }
-    
+
     current.position += offset;
     output[index] = current;
 }
