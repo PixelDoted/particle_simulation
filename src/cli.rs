@@ -15,6 +15,6 @@ pub struct Args {
     pub framerate: Option<u32>,
 
     /// Gravitational Constant
-    #[arg(short, long, default_value_t = 0.001f32)]
+    #[arg(short, long, default_value_t = 0.1f32)]
     pub gravity: f32,
 }

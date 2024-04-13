@@ -57,7 +57,7 @@ fn fragment(result: VertexOutput) -> @location(0) vec4<f32> {
         // return vec4<f32>(1.0);
     }
     
-    var color = vec3<f32>(abs(result.velocity) * 0.9 + 0.1, 0.1);
+    var color = vec3<f32>(abs(result.velocity * 0.1) * 0.9 + 0.1, 0.1);
     color = aces_tone_map(color);
     return vec4<f32>(color, 1.0);
 }

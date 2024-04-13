@@ -75,6 +75,7 @@ async fn main() {
     );
 
     let mut rng = rand::thread_rng();
+
     // Generate Chunks of Random Particles
     for c in 0..num_particles as u64 / 128 {
         let chunk = Vec2::new(rng.gen_range(-20f32..=20f32), rng.gen_range(-20f32..=20f32));
@@ -96,6 +97,7 @@ async fn main() {
             );
         }
     }
+
     // Generate Random Particles
     // for i in 0..NUM_PARTICLES as u64 {
     //     let pos = Vec2::new(rng.gen_range(-20f32..=20f32), rng.gen_range(-20f32..=20f32));
@@ -129,7 +131,6 @@ async fn main() {
     let mut view_zoom = 1.0;
 
     let mut is_paused = true;
-    let time_scale = 100.0;
     let mut instant = std::time::Instant::now();
 
     // Main Loop
@@ -250,7 +251,7 @@ async fn main() {
                         instant.elapsed().as_secs_f32()
                     };
 
-                    physics_module.update_delta_time(&queue, delta_time * time_scale);
+                    physics_module.update_delta_time(&queue, delta_time);
                     instant = std::time::Instant::now();
 
                     let frame = surface.get_current_texture().unwrap();
