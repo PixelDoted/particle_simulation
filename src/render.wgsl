@@ -62,6 +62,9 @@ fn fragment(result: VertexOutput) -> @location(0) vec4<f32> {
     return vec4<f32>(color, 1.0);
 }
 
+
+// https://sotrh.github.io/learn-wgpu/intermediate/tutorial13-hdr/#switching-to-hdr
+//
 // Maps HDR values to linear values
 // Based on http://www.oscars.org/science-technology/sci-tech-projects/aces
 fn aces_tone_map(hdr: vec3<f32>) -> vec3<f32> {

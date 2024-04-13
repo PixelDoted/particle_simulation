@@ -227,7 +227,9 @@ async fn main() {
                 }
 
                 Event::AboutToWait => {
-                    if let Some(frame_time) = args.framerate.map(|f| 1f32 / f as f32) {
+                    let delta_time = if let Some(frame_time) =
+                        args.framerate.map(|f| 1f32 / f as f32)
+                    {
                         while instant.elapsed().as_secs_f32() < frame_time {
                             let left = frame_time - instant.elapsed().as_secs_f32();
                             if left < 0.00025 {
@@ -236,13 +238,19 @@ async fn main() {
 
                             std::thread::sleep(std::time::Duration::from_secs_f32(left * 0.9));
                         }
-                    } else if capture_module.enabled == true {
-                        capture_module.enabled = false;
-                        warn!("The `capture` module can't run without a limited framerate.");
-                    }
 
-                    physics_module
-                        .update_delta_time(&queue, instant.elapsed().as_secs_f32() * time_scale);
+                        // If we have a limited frame time we should always assume the last frame took `frame_time` seconds
+                        frame_time
+                    } else {
+                        if capture_module.enabled == true {
+                            capture_module.enabled = false;
+                            warn!("The `capture` module can't run without a limited framerate.");
+                        }
+
+                        instant.elapsed().as_secs_f32()
+                    };
+
+                    physics_module.update_delta_time(&queue, delta_time * time_scale);
                     instant = std::time::Instant::now();
 
                     let frame = surface.get_current_texture().unwrap();
