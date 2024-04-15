@@ -129,7 +129,9 @@ async fn main() {
     let mut is_right_click_pressed = false;
     let mut mouse_position = Vec2::ZERO;
 
+    let mut follow_center_of_mass = false;
     let mut center_of_mass = Vec2::ZERO;
+
     let mut view_offset = Vec2::ZERO;
     let mut view_zoom = 1.0;
 
@@ -182,6 +184,10 @@ async fn main() {
                         } else {
                             window.set_fullscreen(None);
                         }
+                    }
+
+                    (ElementState::Pressed, PhysicalKey::Code(KeyCode::KeyF)) => {
+                        follow_center_of_mass = !follow_center_of_mass;
                     }
 
                     #[cfg(feature = "capture")]
@@ -266,9 +272,6 @@ async fn main() {
                         .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
                     if !is_paused {
                         let _cpass = physics_module.begin_pass(&mut encoder, work_group_count);
-
-                        drop(_cpass);
-                        follow_module.begin_pass(&mut encoder, physics_module.current);
                     }
 
                     {
@@ -284,34 +287,43 @@ async fn main() {
                         );
                     }
 
-                    follow_module.copy_buffer_to_buffer(&mut encoder);
+                    if follow_center_of_mass {
+                        follow_module.begin_pass(&mut encoder, physics_module.current);
+                        follow_module.copy_buffer_to_buffer(&mut encoder);
+                    }
 
-                    #[cfg(feature = "capture")]
-                    capture_module.begin_pass(
-                        &mut encoder,
-                        &render_module,
-                        physics_module.current_buffer(),
-                        num_particles,
-                    );
+                    {
+                        #[cfg(feature = "capture")]
+                        capture_module.begin_pass(
+                            &mut encoder,
+                            &render_module,
+                            physics_module.current_buffer(),
+                            num_particles,
+                        );
 
-                    #[cfg(feature = "capture")]
-                    capture_module.copy_texture_to_buffer(&mut encoder);
+                        #[cfg(feature = "capture")]
+                        capture_module.copy_texture_to_buffer(&mut encoder);
+                    }
 
                     queue.submit(Some(encoder.finish()));
                     frame.present();
 
-                    #[cfg(feature = "capture")]
-                    capture_module.get_frame(&device);
+                    {
+                        #[cfg(feature = "capture")]
+                        capture_module.get_frame(&device);
+                    }
 
-                    if let Some(mut center) = follow_module.get_center(&device) {
-                        center *= -10.0;
+                    if follow_center_of_mass {
+                        if let Some(mut center) = follow_module.get_center(&device) {
+                            center *= -10.0;
 
-                        center_of_mass = center;
-                        render_module.update_offset(
-                            &queue,
-                            center.x + view_offset.x,
-                            center.y + view_offset.y,
-                        );
+                            center_of_mass = center;
+                            render_module.update_offset(
+                                &queue,
+                                center.x + view_offset.x,
+                                center.y + view_offset.y,
+                            );
+                        }
                     }
                 }
 
