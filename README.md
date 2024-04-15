@@ -5,11 +5,11 @@ A [Newtonian Gravity](https://en.wikipedia.org/wiki/Newton%27s_law_of_universal_
 
 ## Keybindings
 
-Format: `<kbd>Key</kbd> Description [default] (extra info)`  
+Format: <kbd>Key</kbd> `Description` [default] (extra info)  
 
-<kbd>Space</kbd> Pause and Unpause [paused]  
-<kbd>f</kbd> Enable/Disable following center of mass [disabled]  
-<kbd>c</kbd> Enable/Disable capture [disabled] (Requires the `capture` feature)  
+<kbd>Space</kbd> `Pause/Unpause simulation` [paused]  
+<kbd>f</kbd> `Enable/Disable following center of mass` [disabled]  
+<kbd>c</kbd> `Enable/Disable capture` [disabled] (Requires the `capture` feature)  
 
 ## Capture
 
