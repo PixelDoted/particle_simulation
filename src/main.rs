@@ -1,4 +1,5 @@
 mod cli;
+mod follow;
 mod physics;
 mod render;
 mod types;
@@ -9,6 +10,7 @@ mod capture;
 use std::sync::Arc;
 
 use clap::Parser;
+use follow::FollowModule;
 use glam::Vec2;
 use log::warn;
 use rand::Rng;
@@ -68,6 +70,7 @@ async fn main() {
 
     let mut physics_module = PhysicsModule::new(&device, num_particles as usize, args.gravity);
     let render_module = RenderModule::new(&device, &surface, &adapter, swapchain_format);
+    let follow_module = FollowModule::new(&device, &physics_module.particle_buffers);
 
     #[cfg(feature = "capture")]
     let mut capture_module =
@@ -126,7 +129,8 @@ async fn main() {
     let mut is_right_click_pressed = false;
     let mut mouse_position = Vec2::ZERO;
 
-    let mut view_offset = Vec2::new(0.0, 0.0);
+    let mut center_of_mass = Vec2::ZERO;
+    let mut view_offset = Vec2::ZERO;
     let mut view_zoom = 1.0;
 
     let mut is_paused = true;
@@ -220,7 +224,11 @@ async fn main() {
                         let delta = position - mouse_position;
                         view_offset += delta * Vec2::new(1.0, -1.0) * 0.005 / view_zoom;
 
-                        render_module.update_offset(&queue, view_offset.x, view_offset.y);
+                        render_module.update_offset(
+                            &queue,
+                            center_of_mass.x + view_offset.x,
+                            center_of_mass.y + view_offset.y,
+                        );
                     }
 
                     mouse_position = position;
@@ -258,6 +266,9 @@ async fn main() {
                         .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
                     if !is_paused {
                         let _cpass = physics_module.begin_pass(&mut encoder, work_group_count);
+
+                        drop(_cpass);
+                        follow_module.begin_pass(&mut encoder, physics_module.current);
                     }
 
                     {
@@ -272,6 +283,8 @@ async fn main() {
                             num_particles,
                         );
                     }
+
+                    follow_module.copy_buffer_to_buffer(&mut encoder);
 
                     #[cfg(feature = "capture")]
                     capture_module.begin_pass(
@@ -289,6 +302,17 @@ async fn main() {
 
                     #[cfg(feature = "capture")]
                     capture_module.get_frame(&device);
+
+                    if let Some(mut center) = follow_module.get_center(&device) {
+                        center *= -10.0;
+
+                        center_of_mass = center;
+                        render_module.update_offset(
+                            &queue,
+                            center.x + view_offset.x,
+                            center.y + view_offset.y,
+                        );
+                    }
                 }
 
                 _ => (),

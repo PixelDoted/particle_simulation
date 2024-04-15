@@ -9,7 +9,7 @@ pub struct PhysicsModule {
     pub param_buffer: wgpu::Buffer,
 
     pub particle_count: u32,
-    current: usize,
+    pub current: usize,
 
     pub bind_groups: [wgpu::BindGroup; 2],
     pub pipeline: wgpu::ComputePipeline,
