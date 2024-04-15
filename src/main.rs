@@ -91,7 +91,7 @@ async fn main() {
 
             let i = c + p * (num_particles as u64 / 128);
             queue.write_buffer(
-                &physics_module.particle_buffers[0],
+                physics_module.current_buffer(),
                 i * 24,
                 bytemuck::bytes_of(&particle),
             );
