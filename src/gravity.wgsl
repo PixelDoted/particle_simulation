@@ -64,7 +64,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         }
         
         // Newtonian
-        let force = current.mass * other.mass / max(oc_sqr_len, 0.01) * params.gravitational_constant;
+        let force = current.mass * other.mass / max(oc_len, 0.01) * params.gravitational_constant;
         current.velocity += normal * force;
 
         continuing {

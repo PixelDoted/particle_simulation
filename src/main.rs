@@ -85,8 +85,8 @@ async fn main() {
             let particle = Particle {
                 position: chunk + dir * d,
                 velocity: Vec2::ZERO,
-                radius: 0.1,
-                mass: 0.1,
+                radius: 0.1, //rng.gen_range(0.01..=0.2f32),
+                mass: 0.1,   //rng.gen_range(0.01..=0.2f32),
             };
 
             let i = c + p * (num_particles as u64 / 128);
