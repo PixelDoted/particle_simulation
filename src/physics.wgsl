@@ -32,8 +32,14 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     }
 
     var current = particles[index];
+    if current.mass == 0.0 {
+        output[index] = current;
+        return;
+    }
+
     let pre_vel = current.velocity;
     var offset = vec2<f32>(0.0);
+    var forces = vec2<f32>(0.0);
 
     var i: u32 = 0;
     loop {
@@ -45,14 +51,18 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         }
 
         let other = particles[i];
+        if other.mass == 0.0 {
+            continue;
+        }
 
         let oc = other.position - current.position;
         let rr = current.radius + other.radius;
         let oc_sqr_len = dot(oc, oc);
-        if oc_sqr_len <= rr * rr {
-            let oc_len = sqrt(oc_sqr_len);
+        let oc_len = sqrt(oc_sqr_len);
+        let normal = oc / oc_len;
+        if oc_len < rr {
+            // Collision
             let penetration_depth = rr - oc_len;
-            let normal = oc / oc_len;
 
             let pre_solve_normal_vel = dot(pre_vel - other.velocity, normal);
             let normal_vel = dot(current.velocity - other.velocity, normal);
@@ -65,12 +75,20 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
             current.velocity += normal * (-normal_vel - restitution * pre_solve_normal_vel) * w0 / (w1 + w0);
         }
 
+        if oc_len <= 0.0 {
+            continue;
+        }
+        
+        // Newtonian
+        let force = current.mass * other.mass / max(oc_len, 0.01) * params.gravitational_constant;
+        forces += normal * force;
+
         continuing {
             i = i + 1u;
         }
     }
 
-    current.position += offset;
+    current.velocity += forces;
+    current.position += offset + current.velocity * params.delta_time;
     output[index] = current;
 }
-

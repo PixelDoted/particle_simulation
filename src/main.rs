@@ -63,7 +63,7 @@ async fn main() {
     let num_particles: u32 = args.particles; // NOTE: Must be a multiple of `64`
     let work_group_count = num_particles / 64;
 
-    let physics_module = PhysicsModule::new(&device, num_particles as usize, args.gravity);
+    let mut physics_module = PhysicsModule::new(&device, num_particles as usize, args.gravity);
     let render_module = RenderModule::new(&device, &surface, &adapter);
 
     #[cfg(feature = "capture")]
@@ -91,7 +91,7 @@ async fn main() {
 
             let i = c + p * (num_particles as u64 / 128);
             queue.write_buffer(
-                &physics_module.particle_buffer_collision,
+                &physics_module.particle_buffers[0],
                 i * 24,
                 bytemuck::bytes_of(&particle),
             );
@@ -269,7 +269,7 @@ async fn main() {
                         render_module.begin_pass(
                             &mut encoder,
                             &view,
-                            &physics_module.particle_buffer_collision,
+                            physics_module.current_buffer(),
                             num_particles,
                         );
                     }
@@ -278,7 +278,7 @@ async fn main() {
                     capture_module.begin_pass(
                         &mut encoder,
                         &render_module,
-                        &physics_module.particle_buffer_collision,
+                        physics_module.current_buffer(),
                         num_particles,
                     );
 

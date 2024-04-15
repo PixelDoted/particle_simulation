@@ -5,34 +5,26 @@ use wgpu::util::DeviceExt;
 use crate::types::Particle;
 
 pub struct PhysicsModule {
-    pub particle_buffer_collision: wgpu::Buffer,
-    pub particle_buffer_gravity: wgpu::Buffer,
-
+    pub particle_buffers: [wgpu::Buffer; 2],
     pub param_buffer: wgpu::Buffer,
 
     pub particle_count: u32,
+    current: usize,
 
-    pub bind_group_collision: wgpu::BindGroup,
-    pub bind_group_gravity: wgpu::BindGroup,
-
-    pub collision_pipeline: wgpu::ComputePipeline,
-    pub gravity_pipeline: wgpu::ComputePipeline,
+    pub bind_groups: [wgpu::BindGroup; 2],
+    pub pipeline: wgpu::ComputePipeline,
 }
 
 impl PhysicsModule {
     pub fn new(device: &wgpu::Device, max_particles: usize, gravitational_constant: f32) -> Self {
-        let gravity_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        let physics_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: None,
-            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("gravity.wgsl"))),
-        });
-        let collision_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: None,
-            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("collision.wgsl"))),
+            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("physics.wgsl"))),
         });
 
         // https://github.com/gfx-rs/wgpu/blob/trunk/examples/src/hello_compute/mod.rs
         // https://github.com/gfx-rs/wgpu/blob/trunk/examples/src/boids/mod.rs
-        let particle_buffer_collision = device.create_buffer(&wgpu::BufferDescriptor {
+        let particle_buffer_a = device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
             size: (std::mem::size_of::<Particle>() * max_particles) as u64,
             usage: wgpu::BufferUsages::VERTEX
@@ -40,7 +32,7 @@ impl PhysicsModule {
                 | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let particle_buffer_gravity = device.create_buffer(&wgpu::BufferDescriptor {
+        let particle_buffer_b = device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
             size: (std::mem::size_of::<Particle>() * max_particles) as u64,
             usage: wgpu::BufferUsages::VERTEX
@@ -90,17 +82,17 @@ impl PhysicsModule {
             ],
         });
 
-        let bind_group_collision = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let bind_group_a = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
             layout: &bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: particle_buffer_collision.as_entire_binding(),
+                    resource: particle_buffer_a.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: particle_buffer_gravity.as_entire_binding(),
+                    resource: particle_buffer_b.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
@@ -108,17 +100,17 @@ impl PhysicsModule {
                 },
             ],
         });
-        let bind_group_gravity = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let bind_group_b = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
             layout: &bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: particle_buffer_gravity.as_entire_binding(),
+                    resource: particle_buffer_b.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: particle_buffer_collision.as_entire_binding(),
+                    resource: particle_buffer_a.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
@@ -132,49 +124,43 @@ impl PhysicsModule {
             bind_group_layouts: &[&bind_group_layout],
             push_constant_ranges: &[],
         });
-        let gravity_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: None,
             layout: Some(&pipeline_layout),
-            module: &gravity_module,
-            entry_point: "main",
-        });
-        let collision_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: None,
-            layout: Some(&pipeline_layout),
-            module: &collision_module,
+            module: &physics_shader,
             entry_point: "main",
         });
 
         Self {
-            particle_buffer_collision,
-            particle_buffer_gravity,
+            particle_buffers: [particle_buffer_a, particle_buffer_b],
             param_buffer,
 
             particle_count: max_particles as u32,
+            current: 0,
 
-            bind_group_collision,
-            bind_group_gravity,
-            collision_pipeline,
-            gravity_pipeline,
+            bind_groups: [bind_group_a, bind_group_b],
+            pipeline,
         }
     }
 
+    pub fn current_buffer(&self) -> &wgpu::Buffer {
+        &self.particle_buffers[self.current]
+    }
+
     pub fn begin_pass<'a>(
-        &'a self,
+        &'a mut self,
         encoder: &'a mut wgpu::CommandEncoder,
         work_group_count: u32,
     ) -> wgpu::ComputePass<'a> {
+        self.current = (self.current + 1) % 2;
+
         let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: None,
             timestamp_writes: None,
         });
 
-        cpass.set_pipeline(&self.collision_pipeline);
-        cpass.set_bind_group(0, &self.bind_group_collision, &[]);
-        cpass.dispatch_workgroups(work_group_count, 1, 1);
-
-        cpass.set_pipeline(&self.gravity_pipeline);
-        cpass.set_bind_group(0, &self.bind_group_gravity, &[]);
+        cpass.set_pipeline(&self.pipeline);
+        cpass.set_bind_group(0, &self.bind_groups[1 - self.current], &[]);
         cpass.dispatch_workgroups(work_group_count, 1, 1);
 
         cpass
