@@ -59,20 +59,19 @@ async fn main() {
         .await
         .expect("Failed to create Device");
 
+    let swapchain_capabilities = surface.get_capabilities(&adapter);
+    let swapchain_format = swapchain_capabilities.formats[0];
+
     // Shader
     let num_particles: u32 = args.particles; // NOTE: Must be a multiple of `64`
     let work_group_count = num_particles / 64;
 
     let mut physics_module = PhysicsModule::new(&device, num_particles as usize, args.gravity);
-    let render_module = RenderModule::new(&device, &surface, &adapter);
+    let render_module = RenderModule::new(&device, &surface, &adapter, swapchain_format);
 
     #[cfg(feature = "capture")]
-    let mut capture_module = capture::CaptureModule::new(
-        &device,
-        wgpu::TextureFormat::Rgba8UnormSrgb,
-        size.width,
-        size.height,
-    );
+    let mut capture_module =
+        capture::CaptureModule::new(&device, swapchain_format.clone(), size.width, size.height);
 
     let mut rng = rand::thread_rng();
 
@@ -159,7 +158,7 @@ async fn main() {
                     #[cfg(feature = "capture")]
                     capture_module.resize(
                         &device,
-                        wgpu::TextureFormat::Rgba8UnormSrgb,
+                        swapchain_format.clone(),
                         config.width,
                         config.height,
                     );

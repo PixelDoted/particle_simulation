@@ -11,7 +11,7 @@ A [Newtonian Gravity](https://en.wikipedia.org/wiki/Newton%27s_law_of_universal_
 ## Capture
 
 When the `capture` feature is enabled (default) a `frame_buffer.bin` file is created.  
-when capturing the `frame_buffer.bin` file will get filled with raw RGBA (8bpc) frames.  
+when capturing the `frame_buffer.bin` file will get filled with raw frames.  
 `stdout` will contain the used parameters (Width, Height and Format)  
 
 **NOTE:  

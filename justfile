@@ -1,7 +1,6 @@
 set export
 alias r := run
 alias b := build
-alias ga := git-add
 
 run *ARGS:
     cargo r {{ARGS}}

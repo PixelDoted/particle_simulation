@@ -10,10 +10,12 @@ pub struct RenderModule {
 }
 
 impl RenderModule {
-    pub fn new(device: &wgpu::Device, surface: &wgpu::Surface, adapter: &wgpu::Adapter) -> Self {
-        let swapchain_capabilities = surface.get_capabilities(adapter);
-        let swapchain_format = swapchain_capabilities.formats[0];
-
+    pub fn new(
+        device: &wgpu::Device,
+        surface: &wgpu::Surface,
+        adapter: &wgpu::Adapter,
+        swapchain_format: wgpu::TextureFormat,
+    ) -> Self {
         let shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: None,
             source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("render.wgsl"))),
