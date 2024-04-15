@@ -8,7 +8,7 @@ A [Newtonian Gravity](https://en.wikipedia.org/wiki/Newton%27s_law_of_universal_
 Format: `<kbd>Key</kbd> Description [default] (extra info)`  
 
 <kbd>Space</kbd> Pause and Unpause [paused]  
-<kbd>f</kdb> Enable/Disable following center of mass [disabled]  
+<kbd>f</kbd> Enable/Disable following center of mass [disabled]  
 <kbd>c</kbd> Enable/Disable capture [disabled] (Requires the `capture` feature)  
 
 ## Capture
