@@ -100,23 +100,6 @@ async fn main() {
         }
     }
 
-    // Generate Random Particles
-    // for i in 0..NUM_PARTICLES as u64 {
-    //     let pos = Vec2::new(rng.gen_range(-20f32..=20f32), rng.gen_range(-20f32..=20f32));
-    //     let particle = Particle {
-    //         position: pos,
-    //         velocity: Vec2::ZERO,
-    //         radius: 0.1, //rng.gen_range(0.01..=0.2f32);
-    //         mass: 0.1, //rng.gen_range(0.01..=0.2f32);
-    //     };
-
-    //     queue.write_buffer(
-    //         &physics_module.particle_buffer_collision,
-    //         i * 24,
-    //         bytemuck::bytes_of(&particle),
-    //     );
-    // }
-
     // Configure Surface
     let mut config = surface
         .get_default_config(&adapter, size.width, size.height)
