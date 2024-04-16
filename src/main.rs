@@ -11,6 +11,7 @@ mod capture;
 use std::sync::Arc;
 
 use clap::Parser;
+use egui::Widget;
 use follow::FollowModule;
 use glam::Vec2;
 use gui::EguiIntegration;
@@ -27,8 +28,6 @@ use crate::{physics::PhysicsModule, render::RenderModule};
 struct AppState {
     is_right_click_pressed: bool,
     mouse_position: Vec2,
-
-    center_of_mass: Vec2,
 
     view_offset: Vec2,
     view_zoom: f32,
@@ -108,13 +107,11 @@ async fn main() {
         is_right_click_pressed: false,
         mouse_position: Vec2::ZERO,
 
-        center_of_mass: Vec2::ZERO,
-
         view_offset: Vec2::ZERO,
         view_zoom: 1.0,
 
         is_paused: true,
-        framerate: args.framerate.unwrap_or(0),
+        framerate: args.framerate,
         instant: std::time::Instant::now(),
     };
 
@@ -233,8 +230,8 @@ async fn main() {
 
                         render_module.update_offset(
                             &queue,
-                            app_state.center_of_mass.x + app_state.view_offset.x,
-                            app_state.center_of_mass.y + app_state.view_offset.y,
+                            app_state.view_offset.x,
+                            app_state.view_offset.y,
                         );
                     } else {
                         egui_integration.mouse_motion(position);
@@ -262,7 +259,7 @@ async fn main() {
                     }
 
                     let delta_time = app_state.instant.elapsed().as_secs_f32();
-                    physics_module.update_delta_time(&queue, 1.0 / 60.0); // delta_time);
+                    physics_module.update_delta_time(&queue, args.time_scale);
                     app_state.instant = std::time::Instant::now();
 
                     let frame = surface.get_current_texture().unwrap();
@@ -278,7 +275,7 @@ async fn main() {
                                 .default_width(145.0)
                                 .show(&ctx, |ui| {
                                     let mut framerate_text = app_state.framerate.to_string();
-                                    ui.checkbox(&mut app_state.is_paused, "Paused");
+                                    ui.checkbox(&mut app_state.is_paused, "Paused [Space]");
                                     ui.horizontal(|ui| {
                                         ui.label("Fixed FPS");
                                         ui.text_edit_singleline(&mut framerate_text);
@@ -287,19 +284,15 @@ async fn main() {
                                     if let Ok(new_framerate) = framerate_text.parse::<u32>() {
                                         app_state.framerate = new_framerate;
                                     }
-
-                                    ui.separator();
-                                    ui.checkbox(
-                                        &mut follow_module.enabled,
-                                        "Follow center of mass",
-                                    );
-                                    ui.checkbox(&mut capture_module.enabled, "Capturing");
                                 });
 
                             egui::Window::new("Simulation")
                                 .default_width(145.0)
                                 .show(&ctx, |ui| {
-                                    ui.text_edit_singleline(particle_count);
+                                    ui.horizontal(|ui| {
+                                        ui.label("Particles");
+                                        ui.text_edit_singleline(particle_count);
+                                    });
                                     if ui.button("Regenerate").clicked() {
                                         let Ok(particle_count) = particle_count.parse::<u32>()
                                         else {
@@ -322,12 +315,46 @@ async fn main() {
                                             num_particles as u64,
                                         );
                                     }
+                                });
 
+                            egui::Window::new("View")
+                                .default_width(145.0)
+                                .show(&ctx, |ui| {
+                                    ui.horizontal(|ui| {
+                                        ui.label("Zoom");
+                                        egui::widgets::Slider::new(
+                                            &mut app_state.view_zoom,
+                                            0.01..=10.0,
+                                        )
+                                        .ui(ui);
+                                    });
+
+                                    ui.add_space(10.0);
+                                    ui.heading("Follow");
                                     ui.separator();
-                                    ui.label(format!(
-                                        "Center of Mass\nX: {}\nY: {}",
-                                        app_state.center_of_mass.x, app_state.center_of_mass.y
-                                    ));
+                                    ui.checkbox(&mut follow_module.enabled, "Enabled [f]");
+                                    ui.checkbox(
+                                        &mut follow_module.view_center_of_mass,
+                                        "Center of Mass",
+                                    );
+                                    ui.checkbox(&mut follow_module.view_scale, "Auto Zoom");
+                                });
+
+                            egui::Window::new("Capture")
+                                .default_width(145.0)
+                                .show(&ctx, |ui| {
+                                    let size = window.inner_size();
+                                    ui.checkbox(&mut capture_module.enabled, "Enabled [c]");
+                                    ui.label(format!("Size {}x{}", size.width, size.height));
+                                    ui.label(format!("Framerate: {}", app_state.framerate));
+
+                                    if app_state.framerate == 0 {
+                                        ui.separator();
+                                        ui.colored_label(
+                                            egui::Color32::RED,
+                                            "Can't capture without a fixed framerate",
+                                        );
+                                    }
                                 });
                         });
 
@@ -376,15 +403,19 @@ async fn main() {
                     }
 
                     if follow_module.enabled {
-                        if let Some(mut center) = follow_module.get_center(&device) {
-                            center *= -10.0;
+                        if let Some([center, size]) = follow_module.get_data(&device) {
+                            follow_module.center_of_mass = -center;
+                            follow_module.size = size;
 
-                            app_state.center_of_mass = center;
-                            render_module.update_offset(
-                                &queue,
-                                center.x + app_state.view_offset.x,
-                                center.y + app_state.view_offset.y,
-                            );
+                            if follow_module.view_center_of_mass {
+                                app_state.view_offset = -center;
+                                render_module.update_offset(&queue, -center.x, -center.y);
+                            }
+
+                            if follow_module.view_scale {
+                                app_state.view_zoom = size.length_recip().powf(0.75);
+                                render_module.update_zoom(&queue, app_state.view_zoom);
+                            }
                         }
                     }
                 }

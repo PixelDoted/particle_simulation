@@ -59,6 +59,7 @@ impl CaptureModule {
 
         Self {
             enabled: false,
+
             staging_buffer,
             texture,
             buffer_file: file,

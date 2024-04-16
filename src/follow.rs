@@ -4,6 +4,11 @@ use glam::Vec2;
 
 pub struct FollowModule {
     pub enabled: bool,
+    pub view_center_of_mass: bool,
+    pub view_scale: bool,
+
+    pub center_of_mass: Vec2,
+    pub size: Vec2,
 
     position_buffer: wgpu::Buffer,
     staging_buffer: wgpu::Buffer,
@@ -21,7 +26,7 @@ impl FollowModule {
 
         let position_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
-            size: 8,
+            size: 16,
             usage: wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_DST
                 | wgpu::BufferUsages::COPY_SRC,
@@ -30,7 +35,7 @@ impl FollowModule {
 
         let staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
-            size: 8,
+            size: 16,
             usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -120,6 +125,11 @@ impl FollowModule {
 
         Self {
             enabled: false,
+            view_center_of_mass: true,
+            view_scale: true,
+
+            center_of_mass: Vec2::ZERO,
+            size: Vec2::ZERO,
 
             position_buffer,
             staging_buffer,
@@ -153,10 +163,10 @@ impl FollowModule {
             return;
         }
 
-        encoder.copy_buffer_to_buffer(&self.position_buffer, 0, &self.staging_buffer, 0, 8);
+        encoder.copy_buffer_to_buffer(&self.position_buffer, 0, &self.staging_buffer, 0, 16);
     }
 
-    pub fn get_center(&self, device: &wgpu::Device) -> Option<Vec2> {
+    pub fn get_data(&self, device: &wgpu::Device) -> Option<[Vec2; 2]> {
         self.enabled.then_some(())?;
 
         let slice = self.staging_buffer.slice(..);
@@ -166,12 +176,12 @@ impl FollowModule {
         device.poll(wgpu::Maintain::wait()).panic_on_timeout();
         if let Ok(Ok(())) = rx.recv() {
             let data = slice.get_mapped_range();
-            let result: Vec2 = bytemuck::cast_slice(&data)[0];
+            let result: &[Vec2] = bytemuck::cast_slice(&data);
+            let output: [Vec2; 2] = [result[0], result[1]];
 
             drop(data);
             self.staging_buffer.unmap();
-
-            Some(result)
+            Some(output)
         } else {
             None
         }
