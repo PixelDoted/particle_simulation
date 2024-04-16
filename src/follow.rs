@@ -3,6 +3,8 @@ use std::borrow::Cow;
 use glam::Vec2;
 
 pub struct FollowModule {
+    pub enabled: bool,
+
     position_buffer: wgpu::Buffer,
     staging_buffer: wgpu::Buffer,
 
@@ -117,6 +119,8 @@ impl FollowModule {
         });
 
         Self {
+            enabled: false,
+
             position_buffer,
             staging_buffer,
 
@@ -130,6 +134,10 @@ impl FollowModule {
         encoder: &'a mut wgpu::CommandEncoder,
         particle_buffer_index: usize,
     ) {
+        if !self.enabled {
+            return;
+        }
+
         let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: None,
             timestamp_writes: None,
@@ -141,10 +149,16 @@ impl FollowModule {
     }
 
     pub fn copy_buffer_to_buffer<'a>(&self, encoder: &'a mut wgpu::CommandEncoder) {
+        if !self.enabled {
+            return;
+        }
+
         encoder.copy_buffer_to_buffer(&self.position_buffer, 0, &self.staging_buffer, 0, 8);
     }
 
     pub fn get_center(&self, device: &wgpu::Device) -> Option<Vec2> {
+        self.enabled.then_some(())?;
+
         let slice = self.staging_buffer.slice(..);
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
         slice.map_async(wgpu::MapMode::Read, move |v| tx.send(v).unwrap());

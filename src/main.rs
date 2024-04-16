@@ -1,8 +1,9 @@
 mod cli;
 mod follow;
+mod gui;
+mod particle;
 mod physics;
 mod render;
-mod types;
 
 #[cfg(feature = "capture")]
 mod capture;
@@ -12,8 +13,8 @@ use std::sync::Arc;
 use clap::Parser;
 use follow::FollowModule;
 use glam::Vec2;
+use gui::EguiIntegration;
 use log::warn;
-use rand::Rng;
 use winit::{
     event::{ElementState, Event, MouseButton, MouseScrollDelta, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
@@ -21,7 +22,21 @@ use winit::{
     window::WindowBuilder,
 };
 
-use crate::{physics::PhysicsModule, render::RenderModule, types::Particle};
+use crate::{physics::PhysicsModule, render::RenderModule};
+
+struct AppState {
+    is_right_click_pressed: bool,
+    mouse_position: Vec2,
+
+    center_of_mass: Vec2,
+
+    view_offset: Vec2,
+    view_zoom: f32,
+
+    is_paused: bool,
+    framerate: u32,
+    instant: std::time::Instant,
+}
 
 #[tokio::main]
 async fn main() {
@@ -65,40 +80,17 @@ async fn main() {
     let swapchain_format = swapchain_capabilities.formats[0];
 
     // Shader
-    let num_particles: u32 = args.particles; // NOTE: Must be a multiple of `64`
-    let work_group_count = num_particles / 64;
+    let mut num_particles: u32 = args.particles; // NOTE: Must be a multiple of `64`
 
     let mut physics_module = PhysicsModule::new(&device, num_particles as usize, args.gravity);
     let render_module = RenderModule::new(&device, &surface, &adapter, swapchain_format);
-    let follow_module = FollowModule::new(&device, &physics_module.particle_buffers);
+    let mut follow_module = FollowModule::new(&device, &physics_module.particle_buffers);
 
     #[cfg(feature = "capture")]
     let mut capture_module =
         capture::CaptureModule::new(&device, swapchain_format.clone(), size.width, size.height);
 
-    let mut rng = rand::thread_rng();
-
-    // Generate Chunks of Random Particles
-    for c in 0..num_particles as u64 / 128 {
-        let chunk = Vec2::new(rng.gen_range(-20f32..=20f32), rng.gen_range(-20f32..=20f32));
-        for p in 0..128 as u64 {
-            let dir = Vec2::new(rng.gen_range(-1f32..=1f32), rng.gen_range(-1f32..=1f32));
-            let d = rng.gen_range(0.0..=4.0);
-            let particle = Particle {
-                position: chunk + dir * d,
-                velocity: Vec2::ZERO,
-                radius: 0.1, //rng.gen_range(0.01..=0.2f32),
-                mass: 0.1,   //rng.gen_range(0.01..=0.2f32),
-            };
-
-            let i = c + p * (num_particles as u64 / 128);
-            queue.write_buffer(
-                physics_module.current_buffer(),
-                i * 24,
-                bytemuck::bytes_of(&particle),
-            );
-        }
-    }
+    particle::generate_particles(&queue, &physics_module, num_particles as u64);
 
     // Configure Surface
     let mut config = surface
@@ -109,17 +101,22 @@ async fn main() {
     render_module.update_all(&queue, size.width, size.height, 0.0, 0.0, 1.0);
 
     // State
-    let mut is_right_click_pressed = false;
-    let mut mouse_position = Vec2::ZERO;
+    let mut egui_integration =
+        EguiIntegration::new(&device, swapchain_format, num_particles.to_string());
 
-    let mut follow_center_of_mass = false;
-    let mut center_of_mass = Vec2::ZERO;
+    let mut app_state = AppState {
+        is_right_click_pressed: false,
+        mouse_position: Vec2::ZERO,
 
-    let mut view_offset = Vec2::ZERO;
-    let mut view_zoom = 1.0;
+        center_of_mass: Vec2::ZERO,
 
-    let mut is_paused = true;
-    let mut instant = std::time::Instant::now();
+        view_offset: Vec2::ZERO,
+        view_zoom: 1.0,
+
+        is_paused: true,
+        framerate: args.framerate.unwrap_or(0),
+        instant: std::time::Instant::now(),
+    };
 
     // Main Loop
     event_loop
@@ -143,6 +140,7 @@ async fn main() {
                     surface.configure(&device, &config);
 
                     render_module.update_size(&queue, config.width, config.height);
+                    egui_integration.resize(config.width, config.height);
 
                     #[cfg(feature = "capture")]
                     capture_module.resize(
@@ -156,30 +154,38 @@ async fn main() {
                 Event::WindowEvent {
                     event: WindowEvent::KeyboardInput { event, .. },
                     ..
-                } => match (event.state, event.physical_key) {
-                    (ElementState::Pressed, PhysicalKey::Code(KeyCode::Space)) => {
-                        is_paused = !is_paused;
-                    }
-                    (ElementState::Pressed, PhysicalKey::Code(KeyCode::F11)) => {
-                        if window.fullscreen().is_none() {
-                            window
-                                .set_fullscreen(Some(winit::window::Fullscreen::Borderless(None)));
-                        } else {
-                            window.set_fullscreen(None);
+                } => {
+                    let mut handled = true;
+                    match (event.state, event.physical_key) {
+                        (ElementState::Pressed, PhysicalKey::Code(KeyCode::Space)) => {
+                            app_state.is_paused = !app_state.is_paused;
                         }
-                    }
+                        (ElementState::Pressed, PhysicalKey::Code(KeyCode::F11)) => {
+                            if window.fullscreen().is_none() {
+                                window.set_fullscreen(Some(winit::window::Fullscreen::Borderless(
+                                    None,
+                                )));
+                            } else {
+                                window.set_fullscreen(None);
+                            }
+                        }
 
-                    (ElementState::Pressed, PhysicalKey::Code(KeyCode::KeyF)) => {
-                        follow_center_of_mass = !follow_center_of_mass;
-                    }
+                        (ElementState::Pressed, PhysicalKey::Code(KeyCode::KeyF)) => {
+                            follow_module.enabled = !follow_module.enabled;
+                        }
 
-                    #[cfg(feature = "capture")]
-                    (ElementState::Pressed, PhysicalKey::Code(KeyCode::KeyC)) => {
-                        capture_module.enabled = !capture_module.enabled;
-                    }
+                        #[cfg(feature = "capture")]
+                        (ElementState::Pressed, PhysicalKey::Code(KeyCode::KeyC)) => {
+                            capture_module.enabled = !capture_module.enabled;
+                        }
 
-                    _ => (),
-                },
+                        _ => handled = false,
+                    };
+
+                    if !handled {
+                        egui_integration.key_event(event);
+                    }
+                }
 
                 Event::WindowEvent {
                     event: WindowEvent::MouseWheel { delta, .. },
@@ -189,72 +195,143 @@ async fn main() {
                         MouseScrollDelta::LineDelta(_, y) => y,
                         MouseScrollDelta::PixelDelta(pos) => pos.y as f32,
                     } * 0.005
-                        * view_zoom;
+                        * app_state.view_zoom;
 
-                    view_zoom = (view_zoom + delta).clamp(0.01, 10.0);
-                    render_module.update_zoom(&queue, view_zoom);
+                    app_state.view_zoom = (app_state.view_zoom + delta).clamp(0.01, 10.0);
+                    render_module.update_zoom(&queue, app_state.view_zoom);
                 }
                 Event::WindowEvent {
                     event: WindowEvent::MouseInput { state, button, .. },
                     ..
-                } => match (state, button) {
-                    // (ElementState::Pressed, MouseButton::Left) => is_left_click_pressed = true,
-                    // (ElementState::Released, MouseButton::Left) => is_left_click_pressed = false,
-                    (ElementState::Pressed, MouseButton::Right) => is_right_click_pressed = true,
-                    (ElementState::Released, MouseButton::Right) => is_right_click_pressed = false,
-                    _ => (),
-                },
+                } => {
+                    let mut handled = true;
+                    match (state, button) {
+                        // (ElementState::Pressed, MouseButton::Left) => is_left_click_pressed = true,
+                        // (ElementState::Released, MouseButton::Left) => is_left_click_pressed = false,
+                        (ElementState::Pressed, MouseButton::Right) => {
+                            app_state.is_right_click_pressed = true
+                        }
+                        (ElementState::Released, MouseButton::Right) => {
+                            app_state.is_right_click_pressed = false
+                        }
+                        _ => handled = false,
+                    }
+
+                    if !handled {
+                        egui_integration.mouse_event(app_state.mouse_position, state, button);
+                    }
+                }
                 Event::WindowEvent {
                     event: WindowEvent::CursorMoved { position, .. },
                     ..
                 } => {
                     let position = Vec2::new(position.x as f32, position.y as f32);
-                    if is_right_click_pressed {
-                        let delta = position - mouse_position;
-                        view_offset += delta * Vec2::new(1.0, -1.0) * 0.005 / view_zoom;
+                    if app_state.is_right_click_pressed {
+                        let delta = position - app_state.mouse_position;
+                        app_state.view_offset +=
+                            delta * Vec2::new(1.0, -1.0) * 0.005 / app_state.view_zoom;
 
                         render_module.update_offset(
                             &queue,
-                            center_of_mass.x + view_offset.x,
-                            center_of_mass.y + view_offset.y,
+                            app_state.center_of_mass.x + app_state.view_offset.x,
+                            app_state.center_of_mass.y + app_state.view_offset.y,
                         );
+                    } else {
+                        egui_integration.mouse_motion(position);
                     }
 
-                    mouse_position = position;
+                    app_state.mouse_position = position;
                 }
 
                 Event::AboutToWait => {
-                    let delta_time = if let Some(frame_time) =
-                        args.framerate.map(|f| 1f32 / f as f32)
-                    {
-                        while instant.elapsed().as_secs_f32() < frame_time {
-                            let left = frame_time - instant.elapsed().as_secs_f32();
+                    if app_state.framerate > 0 {
+                        let frame_time = 1.0 / app_state.framerate as f32;
+                        while app_state.instant.elapsed().as_secs_f32() < frame_time {
+                            let left = frame_time - app_state.instant.elapsed().as_secs_f32();
                             if left < 0.00025 {
                                 continue;
                             }
 
                             std::thread::sleep(std::time::Duration::from_secs_f32(left * 0.9));
                         }
-
-                        // If we have a limited frame time we should always assume the last frame took `frame_time` seconds
-                        frame_time
                     } else {
                         if capture_module.enabled == true {
                             capture_module.enabled = false;
                             warn!("The `capture` module can't run without a limited framerate.");
                         }
+                    }
 
-                        instant.elapsed().as_secs_f32()
-                    };
-
-                    physics_module.update_delta_time(&queue, delta_time);
-                    instant = std::time::Instant::now();
+                    let delta_time = app_state.instant.elapsed().as_secs_f32();
+                    physics_module.update_delta_time(&queue, 1.0 / 60.0); // delta_time);
+                    app_state.instant = std::time::Instant::now();
 
                     let frame = surface.get_current_texture().unwrap();
                     let mut encoder = device
                         .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-                    if !is_paused {
-                        let _cpass = physics_module.begin_pass(&mut encoder, work_group_count);
+                    if !app_state.is_paused {
+                        let _cpass = physics_module.begin_pass(&mut encoder, num_particles / 64);
+                    }
+
+                    {
+                        egui_integration.run(|ctx, particle_count| {
+                            egui::Window::new("Settings")
+                                .default_width(145.0)
+                                .show(&ctx, |ui| {
+                                    let mut framerate_text = app_state.framerate.to_string();
+                                    ui.checkbox(&mut app_state.is_paused, "Paused");
+                                    ui.horizontal(|ui| {
+                                        ui.label("Fixed FPS");
+                                        ui.text_edit_singleline(&mut framerate_text);
+                                    });
+                                    ui.label(format!("FPS {:.1}", 1.0 / delta_time));
+                                    if let Ok(new_framerate) = framerate_text.parse::<u32>() {
+                                        app_state.framerate = new_framerate;
+                                    }
+
+                                    ui.separator();
+                                    ui.checkbox(
+                                        &mut follow_module.enabled,
+                                        "Follow center of mass",
+                                    );
+                                    ui.checkbox(&mut capture_module.enabled, "Capturing");
+                                });
+
+                            egui::Window::new("Simulation")
+                                .default_width(145.0)
+                                .show(&ctx, |ui| {
+                                    ui.text_edit_singleline(particle_count);
+                                    if ui.button("Regenerate").clicked() {
+                                        let Ok(particle_count) = particle_count.parse::<u32>()
+                                        else {
+                                            return;
+                                        };
+
+                                        if particle_count % 64 > 0 {
+                                            return;
+                                        }
+
+                                        if num_particles != particle_count {
+                                            physics_module
+                                                .resize_buffers(&device, particle_count as usize);
+                                        }
+
+                                        num_particles = particle_count;
+                                        particle::generate_particles(
+                                            &queue,
+                                            &physics_module,
+                                            num_particles as u64,
+                                        );
+                                    }
+
+                                    ui.separator();
+                                    ui.label(format!(
+                                        "Center of Mass\nX: {}\nY: {}",
+                                        app_state.center_of_mass.x, app_state.center_of_mass.y
+                                    ));
+                                });
+                        });
+
+                        egui_integration.pre_render(&device, &queue, &mut encoder);
                     }
 
                     {
@@ -262,15 +339,17 @@ async fn main() {
                             .texture
                             .create_view(&wgpu::TextureViewDescriptor::default());
 
-                        render_module.begin_pass(
+                        let mut rpass = render_module.begin_pass(
                             &mut encoder,
                             &view,
                             physics_module.current_buffer(),
                             num_particles,
                         );
+
+                        egui_integration.render(&mut rpass);
                     }
 
-                    if follow_center_of_mass {
+                    if follow_module.enabled {
                         follow_module.begin_pass(&mut encoder, physics_module.current);
                         follow_module.copy_buffer_to_buffer(&mut encoder);
                     }
@@ -296,15 +375,15 @@ async fn main() {
                         capture_module.get_frame(&device);
                     }
 
-                    if follow_center_of_mass {
+                    if follow_module.enabled {
                         if let Some(mut center) = follow_module.get_center(&device) {
                             center *= -10.0;
 
-                            center_of_mass = center;
+                            app_state.center_of_mass = center;
                             render_module.update_offset(
                                 &queue,
-                                center.x + view_offset.x,
-                                center.y + view_offset.y,
+                                center.x + app_state.view_offset.x,
+                                center.y + app_state.view_offset.y,
                             );
                         }
                     }

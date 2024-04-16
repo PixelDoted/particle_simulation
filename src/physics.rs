@@ -2,15 +2,15 @@ use std::borrow::Cow;
 
 use wgpu::util::DeviceExt;
 
-use crate::types::Particle;
+use crate::particle::Particle;
 
 pub struct PhysicsModule {
     pub particle_buffers: [wgpu::Buffer; 2],
     pub param_buffer: wgpu::Buffer,
 
-    pub particle_count: u32,
     pub current: usize,
 
+    bind_group_layout: wgpu::BindGroupLayout,
     pub bind_groups: [wgpu::BindGroup; 2],
     pub pipeline: wgpu::ComputePipeline,
 }
@@ -24,22 +24,6 @@ impl PhysicsModule {
 
         // https://github.com/gfx-rs/wgpu/blob/trunk/examples/src/hello_compute/mod.rs
         // https://github.com/gfx-rs/wgpu/blob/trunk/examples/src/boids/mod.rs
-        let particle_buffer_a = device.create_buffer(&wgpu::BufferDescriptor {
-            label: None,
-            size: (std::mem::size_of::<Particle>() * max_particles) as u64,
-            usage: wgpu::BufferUsages::VERTEX
-                | wgpu::BufferUsages::STORAGE
-                | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        let particle_buffer_b = device.create_buffer(&wgpu::BufferDescriptor {
-            label: None,
-            size: (std::mem::size_of::<Particle>() * max_particles) as u64,
-            usage: wgpu::BufferUsages::VERTEX
-                | wgpu::BufferUsages::STORAGE
-                | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
         let param_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Physics Parameter Buffer"),
             contents: bytemuck::cast_slice(&[1.0f32, gravitational_constant]),
@@ -82,42 +66,8 @@ impl PhysicsModule {
             ],
         });
 
-        let bind_group_a = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: None,
-            layout: &bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: particle_buffer_a.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: particle_buffer_b.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: param_buffer.as_entire_binding(),
-                },
-            ],
-        });
-        let bind_group_b = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: None,
-            layout: &bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: particle_buffer_b.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: particle_buffer_a.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: param_buffer.as_entire_binding(),
-                },
-            ],
-        });
+        let (particle_buffers, bind_groups) =
+            create_buffer_group(device, &bind_group_layout, &param_buffer, max_particles);
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
@@ -132,15 +82,27 @@ impl PhysicsModule {
         });
 
         Self {
-            particle_buffers: [particle_buffer_a, particle_buffer_b],
+            particle_buffers,
             param_buffer,
 
-            particle_count: max_particles as u32,
             current: 0,
 
-            bind_groups: [bind_group_a, bind_group_b],
+            bind_group_layout,
+            bind_groups,
             pipeline,
         }
+    }
+
+    pub fn resize_buffers(&mut self, device: &wgpu::Device, num_particles: usize) {
+        let (particle_buffers, bind_groups) = create_buffer_group(
+            device,
+            &self.bind_group_layout,
+            &self.param_buffer,
+            num_particles,
+        );
+
+        self.particle_buffers = particle_buffers;
+        self.bind_groups = bind_groups;
     }
 
     pub fn current_buffer(&self) -> &wgpu::Buffer {
@@ -173,4 +135,67 @@ impl PhysicsModule {
     pub fn update_gravitational_constant(&self, queue: &wgpu::Queue, g: f32) {
         queue.write_buffer(&self.param_buffer, 4, bytemuck::bytes_of(&g));
     }
+}
+
+fn create_buffer_group(
+    device: &wgpu::Device,
+    bind_group_layout: &wgpu::BindGroupLayout,
+    param_buffer: &wgpu::Buffer,
+    num_particles: usize,
+) -> ([wgpu::Buffer; 2], [wgpu::BindGroup; 2]) {
+    let pba = device.create_buffer(&wgpu::BufferDescriptor {
+        label: None,
+        size: (std::mem::size_of::<Particle>() * num_particles) as u64,
+        usage: wgpu::BufferUsages::VERTEX
+            | wgpu::BufferUsages::STORAGE
+            | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    let pbb = device.create_buffer(&wgpu::BufferDescriptor {
+        label: None,
+        size: (std::mem::size_of::<Particle>() * num_particles) as u64,
+        usage: wgpu::BufferUsages::VERTEX
+            | wgpu::BufferUsages::STORAGE
+            | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+
+    let bga = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: None,
+        layout: &bind_group_layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: pba.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: pbb.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: param_buffer.as_entire_binding(),
+            },
+        ],
+    });
+    let bgb = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: None,
+        layout: &bind_group_layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: pbb.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: pba.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: param_buffer.as_entire_binding(),
+            },
+        ],
+    });
+
+    ([pba, pbb], [bga, bgb])
 }
