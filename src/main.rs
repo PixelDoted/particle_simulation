@@ -25,6 +25,8 @@ use winit::{
 
 use crate::{physics::PhysicsModule, render::RenderModule};
 
+pub const PARTICLES_PER_WORKGROUP: u32 = 256;
+
 struct AppState {
     is_right_click_pressed: bool,
     mouse_position: Vec2,
@@ -80,8 +82,8 @@ async fn main() {
 
     // Shader
     let mut num_particles: u32 = args.particles;
-    let buffer_particles = if num_particles % 64 > 0 {
-        num_particles + 64 - num_particles % 64
+    let buffer_particles = if num_particles % PARTICLES_PER_WORKGROUP > 0 {
+        num_particles + PARTICLES_PER_WORKGROUP - num_particles % PARTICLES_PER_WORKGROUP
     } else {
         num_particles
     };
@@ -263,7 +265,8 @@ async fn main() {
                     let mut encoder = device
                         .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
                     if !app_state.is_paused {
-                        let _cpass = physics_module.begin_pass(&mut encoder, num_particles / 64);
+                        let _cpass = physics_module
+                            .begin_pass(&mut encoder, num_particles / PARTICLES_PER_WORKGROUP);
                     }
 
                     {
@@ -311,11 +314,13 @@ async fn main() {
                                         };
 
                                         if num_particles != particle_count {
-                                            let buffer_particles = if particle_count % 64 > 0 {
-                                                particle_count + 64 - particle_count % 64
-                                            } else {
-                                                particle_count
-                                            };
+                                            let buffer_particles =
+                                                if particle_count % PARTICLES_PER_WORKGROUP > 0 {
+                                                    particle_count + PARTICLES_PER_WORKGROUP
+                                                        - particle_count % PARTICLES_PER_WORKGROUP
+                                                } else {
+                                                    particle_count
+                                                };
 
                                             physics_module
                                                 .resize_buffers(&device, buffer_particles as usize);
