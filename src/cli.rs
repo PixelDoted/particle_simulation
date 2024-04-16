@@ -4,7 +4,7 @@ use clap::Parser;
 #[derive(Parser)]
 #[command()]
 pub struct Args {
-    /// Total Particles, Must be a multiple of `64`
+    /// Total Particles
     #[arg(short, long, default_value_t = 4096)]
     pub particles: u32,
 

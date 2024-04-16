@@ -60,6 +60,10 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         let oc_sqr_len = dot(oc, oc);
         let oc_len = sqrt(oc_sqr_len);
         let normal = oc / oc_len;
+        if oc_len <= 1e-8 {
+            continue;
+        }
+        
         if oc_len < rr {
             // Collision
             let penetration_depth = rr - oc_len;
@@ -73,10 +77,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
             offset -= normal * penetration_depth * w0 / (w1 + w0);
             current.velocity += normal * (-normal_vel - restitution * pre_solve_normal_vel) * w0 / (w1 + w0);
-        }
-
-        if oc_len <= 0.0 {
-            continue;
         }
         
         // Newtonian

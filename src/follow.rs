@@ -2,13 +2,22 @@ use std::borrow::Cow;
 
 use glam::Vec2;
 
+#[derive(Default, Clone, Copy, bytemuck::Zeroable)]
+pub struct InfoOutput {
+    pub center_of_mass: Vec2,
+    pub min_position: Vec2,
+    pub max_position: Vec2,
+    pub avg_velocity: Vec2,
+}
+
+unsafe impl bytemuck::Pod for InfoOutput {}
+
 pub struct FollowModule {
     pub enabled: bool,
-    pub view_center_of_mass: bool,
-    pub view_scale: bool,
+    pub center_of_mass: bool,
+    pub auto_zoom: bool,
 
-    pub center_of_mass: Vec2,
-    pub size: Vec2,
+    pub info: InfoOutput,
 
     position_buffer: wgpu::Buffer,
     staging_buffer: wgpu::Buffer,
@@ -26,7 +35,7 @@ impl FollowModule {
 
         let position_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
-            size: 16,
+            size: std::mem::size_of::<InfoOutput>() as u64,
             usage: wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_DST
                 | wgpu::BufferUsages::COPY_SRC,
@@ -35,7 +44,7 @@ impl FollowModule {
 
         let staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
-            size: 16,
+            size: std::mem::size_of::<InfoOutput>() as u64,
             usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -125,11 +134,10 @@ impl FollowModule {
 
         Self {
             enabled: false,
-            view_center_of_mass: true,
-            view_scale: true,
+            center_of_mass: true,
+            auto_zoom: false,
 
-            center_of_mass: Vec2::ZERO,
-            size: Vec2::ZERO,
+            info: InfoOutput::default(),
 
             position_buffer,
             staging_buffer,
@@ -163,10 +171,16 @@ impl FollowModule {
             return;
         }
 
-        encoder.copy_buffer_to_buffer(&self.position_buffer, 0, &self.staging_buffer, 0, 16);
+        encoder.copy_buffer_to_buffer(
+            &self.position_buffer,
+            0,
+            &self.staging_buffer,
+            0,
+            std::mem::size_of::<InfoOutput>() as u64,
+        );
     }
 
-    pub fn get_data(&self, device: &wgpu::Device) -> Option<[Vec2; 2]> {
+    pub fn get_data(&self, device: &wgpu::Device) -> Option<InfoOutput> {
         self.enabled.then_some(())?;
 
         let slice = self.staging_buffer.slice(..);
@@ -176,12 +190,11 @@ impl FollowModule {
         device.poll(wgpu::Maintain::wait()).panic_on_timeout();
         if let Ok(Ok(())) = rx.recv() {
             let data = slice.get_mapped_range();
-            let result: &[Vec2] = bytemuck::cast_slice(&data);
-            let output: [Vec2; 2] = [result[0], result[1]];
+            let result: InfoOutput = bytemuck::cast_slice(&data)[0];
 
             drop(data);
             self.staging_buffer.unmap();
-            Some(output)
+            Some(result)
         } else {
             None
         }

@@ -79,9 +79,14 @@ async fn main() {
     let swapchain_format = swapchain_capabilities.formats[0];
 
     // Shader
-    let mut num_particles: u32 = args.particles; // NOTE: Must be a multiple of `64`
+    let mut num_particles: u32 = args.particles;
+    let buffer_particles = if num_particles % 64 > 0 {
+        num_particles + 64 - num_particles % 64
+    } else {
+        num_particles
+    };
 
-    let mut physics_module = PhysicsModule::new(&device, num_particles as usize, args.gravity);
+    let mut physics_module = PhysicsModule::new(&device, buffer_particles as usize, args.gravity);
     let render_module = RenderModule::new(&device, swapchain_format);
     let mut follow_module = FollowModule::new(&device, &physics_module.particle_buffers);
 
@@ -228,10 +233,9 @@ async fn main() {
                             app_state.view_offset.x,
                             app_state.view_offset.y,
                         );
-                    } else {
-                        egui_integration.mouse_motion(position);
                     }
 
+                    egui_integration.mouse_motion(position);
                     app_state.mouse_position = position;
                 }
 
@@ -244,7 +248,7 @@ async fn main() {
                                 continue;
                             }
 
-                            std::thread::sleep(std::time::Duration::from_secs_f32(left * 0.9));
+                            std::thread::yield_now();
                         }
                     } else if capture_module.enabled {
                         capture_module.enabled = false;
@@ -282,6 +286,20 @@ async fn main() {
                             egui::Window::new("Simulation")
                                 .default_width(145.0)
                                 .show(ctx, |ui| {
+                                    ui.label(format!(
+                                        "Center of Mass\nx: {}\ny: {}",
+                                        follow_module.info.center_of_mass.x,
+                                        follow_module.info.center_of_mass.y,
+                                    ));
+                                    ui.add_space(5.0);
+                                    ui.label(format!(
+                                        "Avg Velocity\nx: {}\ny: {}",
+                                        follow_module.info.avg_velocity.x,
+                                        follow_module.info.avg_velocity.y,
+                                    ));
+                                    ui.add_space(5.0);
+
+                                    ui.separator();
                                     ui.horizontal(|ui| {
                                         ui.label("Particles");
                                         ui.text_edit_singleline(particle_count);
@@ -292,13 +310,15 @@ async fn main() {
                                             return;
                                         };
 
-                                        if particle_count % 64 > 0 {
-                                            return;
-                                        }
-
                                         if num_particles != particle_count {
+                                            let buffer_particles = if particle_count % 64 > 0 {
+                                                particle_count + 64 - particle_count % 64
+                                            } else {
+                                                particle_count
+                                            };
+
                                             physics_module
-                                                .resize_buffers(&device, particle_count as usize);
+                                                .resize_buffers(&device, buffer_particles as usize);
                                         }
 
                                         num_particles = particle_count;
@@ -327,10 +347,10 @@ async fn main() {
                                     ui.separator();
                                     ui.checkbox(&mut follow_module.enabled, "Enabled [f]");
                                     ui.checkbox(
-                                        &mut follow_module.view_center_of_mass,
+                                        &mut follow_module.center_of_mass,
                                         "Center of Mass",
                                     );
-                                    ui.checkbox(&mut follow_module.view_scale, "Auto Zoom");
+                                    ui.checkbox(&mut follow_module.auto_zoom, "Auto Zoom");
                                 });
 
                             egui::Window::new("Capture")
@@ -396,16 +416,22 @@ async fn main() {
                     }
 
                     if follow_module.enabled {
-                        if let Some([center, size]) = follow_module.get_data(&device) {
-                            follow_module.center_of_mass = -center;
-                            follow_module.size = size;
+                        if let Some(output) = follow_module.get_data(&device) {
+                            follow_module.info = output;
 
-                            if follow_module.view_center_of_mass {
-                                app_state.view_offset = -center;
-                                render_module.update_offset(&queue, -center.x, -center.y);
+                            if follow_module.center_of_mass {
+                                app_state.view_offset = -output.center_of_mass;
+                                render_module.update_offset(
+                                    &queue,
+                                    app_state.view_offset.x,
+                                    app_state.view_offset.y,
+                                );
                             }
 
-                            if follow_module.view_scale {
+                            if follow_module.auto_zoom {
+                                let size = follow_module.info.max_position
+                                    - follow_module.info.min_position;
+
                                 app_state.view_zoom = size.length_recip().powf(0.75);
                                 render_module.update_zoom(&queue, app_state.view_zoom);
                             }
