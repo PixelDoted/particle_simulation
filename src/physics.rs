@@ -162,7 +162,7 @@ fn create_buffer_group(
 
     let bga = device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: None,
-        layout: &bind_group_layout,
+        layout: bind_group_layout,
         entries: &[
             wgpu::BindGroupEntry {
                 binding: 0,
@@ -180,7 +180,7 @@ fn create_buffer_group(
     });
     let bgb = device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: None,
-        layout: &bind_group_layout,
+        layout: bind_group_layout,
         entries: &[
             wgpu::BindGroupEntry {
                 binding: 0,

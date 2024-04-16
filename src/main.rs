@@ -82,12 +82,12 @@ async fn main() {
     let mut num_particles: u32 = args.particles; // NOTE: Must be a multiple of `64`
 
     let mut physics_module = PhysicsModule::new(&device, num_particles as usize, args.gravity);
-    let render_module = RenderModule::new(&device, &surface, &adapter, swapchain_format);
+    let render_module = RenderModule::new(&device, swapchain_format);
     let mut follow_module = FollowModule::new(&device, &physics_module.particle_buffers);
 
     #[cfg(feature = "capture")]
     let mut capture_module =
-        capture::CaptureModule::new(&device, swapchain_format.clone(), size.width, size.height);
+        capture::CaptureModule::new(&device, swapchain_format, size.width, size.height);
 
     particle::generate_particles(&queue, &physics_module, num_particles as u64);
 
@@ -140,12 +140,7 @@ async fn main() {
                     egui_integration.resize(config.width, config.height);
 
                     #[cfg(feature = "capture")]
-                    capture_module.resize(
-                        &device,
-                        swapchain_format.clone(),
-                        config.width,
-                        config.height,
-                    );
+                    capture_module.resize(&device, swapchain_format, config.width, config.height);
                 }
 
                 Event::WindowEvent {
@@ -251,11 +246,9 @@ async fn main() {
 
                             std::thread::sleep(std::time::Duration::from_secs_f32(left * 0.9));
                         }
-                    } else {
-                        if capture_module.enabled == true {
-                            capture_module.enabled = false;
-                            warn!("The `capture` module can't run without a limited framerate.");
-                        }
+                    } else if capture_module.enabled {
+                        capture_module.enabled = false;
+                        warn!("The `capture` module can't run without a limited framerate.");
                     }
 
                     let delta_time = app_state.instant.elapsed().as_secs_f32();
@@ -273,7 +266,7 @@ async fn main() {
                         egui_integration.run(|ctx, particle_count| {
                             egui::Window::new("Settings")
                                 .default_width(145.0)
-                                .show(&ctx, |ui| {
+                                .show(ctx, |ui| {
                                     let mut framerate_text = app_state.framerate.to_string();
                                     ui.checkbox(&mut app_state.is_paused, "Paused [Space]");
                                     ui.horizontal(|ui| {
@@ -288,7 +281,7 @@ async fn main() {
 
                             egui::Window::new("Simulation")
                                 .default_width(145.0)
-                                .show(&ctx, |ui| {
+                                .show(ctx, |ui| {
                                     ui.horizontal(|ui| {
                                         ui.label("Particles");
                                         ui.text_edit_singleline(particle_count);
@@ -319,7 +312,7 @@ async fn main() {
 
                             egui::Window::new("View")
                                 .default_width(145.0)
-                                .show(&ctx, |ui| {
+                                .show(ctx, |ui| {
                                     ui.horizontal(|ui| {
                                         ui.label("Zoom");
                                         egui::widgets::Slider::new(
@@ -342,7 +335,7 @@ async fn main() {
 
                             egui::Window::new("Capture")
                                 .default_width(145.0)
-                                .show(&ctx, |ui| {
+                                .show(ctx, |ui| {
                                     let size = window.inner_size();
                                     ui.checkbox(&mut capture_module.enabled, "Enabled [c]");
                                     ui.label(format!("Size {}x{}", size.width, size.height));

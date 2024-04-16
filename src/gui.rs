@@ -105,10 +105,10 @@ impl EguiIntegration {
             winit::keyboard::Key::Unidentified(_) => return None,
             winit::keyboard::Key::Dead(_) => return None,
         };
-        let physical_key = None; // match event.physical_key {
-                                 // winit::keyboard::PhysicalKey::Code(code) => keycode_to_egui_key(code),
-                                 // winit::keyboard::PhysicalKey::Unidentified(_) => None,
-                                 // };
+        let physical_key = match event.physical_key {
+            winit::keyboard::PhysicalKey::Code(code) => keycode_to_egui_key(code),
+            winit::keyboard::PhysicalKey::Unidentified(_) => None,
+        };
 
         self.raw_input.events.push(egui::Event::Key {
             key,

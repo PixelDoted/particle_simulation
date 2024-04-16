@@ -158,7 +158,7 @@ impl FollowModule {
         cpass.dispatch_workgroups(1, 1, 1);
     }
 
-    pub fn copy_buffer_to_buffer<'a>(&self, encoder: &'a mut wgpu::CommandEncoder) {
+    pub fn copy_buffer_to_buffer(&self, encoder: &mut wgpu::CommandEncoder) {
         if !self.enabled {
             return;
         }

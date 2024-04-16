@@ -10,12 +10,7 @@ pub struct RenderModule {
 }
 
 impl RenderModule {
-    pub fn new(
-        device: &wgpu::Device,
-        surface: &wgpu::Surface,
-        adapter: &wgpu::Adapter,
-        swapchain_format: wgpu::TextureFormat,
-    ) -> Self {
+    pub fn new(device: &wgpu::Device, swapchain_format: wgpu::TextureFormat) -> Self {
         let shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: None,
             source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("render.wgsl"))),
@@ -100,7 +95,7 @@ impl RenderModule {
         let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: None,
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &view,
+                view,
                 resolve_target: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
