@@ -82,6 +82,7 @@ async fn main() {
 
     // Shader
     let mut num_particles: u32 = args.particles;
+    let mut new_num_particles: u32 = num_particles;
     let buffer_particles = if num_particles % PARTICLES_PER_WORKGROUP > 0 {
         num_particles + PARTICLES_PER_WORKGROUP - num_particles % PARTICLES_PER_WORKGROUP
     } else {
@@ -107,8 +108,7 @@ async fn main() {
     render_module.update_all(&queue, size.width, size.height, 0.0, 0.0, 1.0);
 
     // State
-    let mut egui_integration =
-        EguiIntegration::new(&device, swapchain_format, num_particles.to_string());
+    let mut egui_integration = EguiIntegration::new(&device, swapchain_format);
 
     let mut app_state = AppState {
         is_right_click_pressed: false,
@@ -184,6 +184,12 @@ async fn main() {
                     if !handled {
                         egui_integration.key_event(event);
                     }
+                }
+                Event::WindowEvent {
+                    event: WindowEvent::ModifiersChanged(modifiers),
+                    ..
+                } => {
+                    egui_integration.modifiers_event(modifiers);
                 }
 
                 Event::WindowEvent {
@@ -270,20 +276,16 @@ async fn main() {
                     }
 
                     {
-                        egui_integration.run(|ctx, particle_count| {
+                        egui_integration.run(|ctx| {
                             egui::Window::new("Settings")
                                 .default_width(145.0)
                                 .show(ctx, |ui| {
-                                    let mut framerate_text = app_state.framerate.to_string();
                                     ui.checkbox(&mut app_state.is_paused, "Paused [Space]");
-                                    ui.horizontal(|ui| {
-                                        ui.label("Fixed FPS");
-                                        ui.text_edit_singleline(&mut framerate_text);
-                                    });
+                                    egui::DragValue::new(&mut app_state.framerate)
+                                        .suffix(" Fixed FPS")
+                                        .ui(ui);
+
                                     ui.label(format!("FPS {:.1}", 1.0 / delta_time));
-                                    if let Ok(new_framerate) = framerate_text.parse::<u32>() {
-                                        app_state.framerate = new_framerate;
-                                    }
                                 });
 
                             egui::Window::new("Simulation")
@@ -303,30 +305,27 @@ async fn main() {
                                     ui.add_space(5.0);
 
                                     ui.separator();
-                                    ui.horizontal(|ui| {
-                                        ui.label("Particles");
-                                        ui.text_edit_singleline(particle_count);
-                                    });
-                                    if ui.button("Regenerate").clicked() {
-                                        let Ok(particle_count) = particle_count.parse::<u32>()
-                                        else {
-                                            return;
-                                        };
+                                    egui::DragValue::new(&mut new_num_particles)
+                                        .suffix(" Particles")
+                                        .ui(ui);
 
-                                        if num_particles != particle_count {
-                                            let buffer_particles =
-                                                if particle_count % PARTICLES_PER_WORKGROUP > 0 {
-                                                    particle_count + PARTICLES_PER_WORKGROUP
-                                                        - particle_count % PARTICLES_PER_WORKGROUP
-                                                } else {
-                                                    particle_count
-                                                };
+                                    if ui.button("Regenerate").clicked() && new_num_particles > 0 {
+                                        if num_particles != new_num_particles {
+                                            let buffer_particles = if new_num_particles
+                                                % PARTICLES_PER_WORKGROUP
+                                                > 0
+                                            {
+                                                new_num_particles + PARTICLES_PER_WORKGROUP
+                                                    - new_num_particles % PARTICLES_PER_WORKGROUP
+                                            } else {
+                                                new_num_particles
+                                            };
 
                                             physics_module
                                                 .resize_buffers(&device, buffer_particles as usize);
                                         }
 
-                                        num_particles = particle_count;
+                                        num_particles = new_num_particles;
                                         particle::generate_particles(
                                             &queue,
                                             &physics_module,
@@ -434,8 +433,9 @@ async fn main() {
                             }
 
                             if follow_module.auto_zoom {
-                                let size = follow_module.info.max_position
-                                    - follow_module.info.min_position;
+                                let size = (follow_module.info.max_position
+                                    - follow_module.info.min_position)
+                                    .abs();
 
                                 app_state.view_zoom = size.length_recip().powf(0.75);
                                 render_module.update_zoom(&queue, app_state.view_zoom);

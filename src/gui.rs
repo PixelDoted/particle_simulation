@@ -1,10 +1,9 @@
 use glam::Vec2;
 
 pub struct EguiIntegration {
-    pub num_particles: String,
-
     pub ctx: egui::Context,
     raw_input: egui::RawInput,
+    modifiers: egui::Modifiers,
 
     renderer: egui_wgpu::Renderer,
     clipped_shapes: Vec<egui::ClippedPrimitive>,
@@ -12,18 +11,13 @@ pub struct EguiIntegration {
 }
 
 impl EguiIntegration {
-    pub fn new(
-        device: &wgpu::Device,
-        swapchain_format: wgpu::TextureFormat,
-        num_particles: String,
-    ) -> Self {
+    pub fn new(device: &wgpu::Device, swapchain_format: wgpu::TextureFormat) -> Self {
         let renderer = egui_wgpu::Renderer::new(device, swapchain_format, None, 1);
 
         Self {
-            num_particles,
-
             ctx: egui::Context::default(),
             raw_input: egui::RawInput::default(),
+            modifiers: Default::default(),
 
             renderer,
             clipped_shapes: Vec::new(),
@@ -38,10 +32,10 @@ impl EguiIntegration {
         ));
     }
 
-    pub fn run<F: FnOnce(&egui::Context, &mut String)>(&mut self, run_ui: F) {
+    pub fn run<F: FnOnce(&egui::Context)>(&mut self, run_ui: F) {
         let raw_input = std::mem::take(&mut self.raw_input);
         self.ctx.begin_frame(raw_input);
-        run_ui(&self.ctx, &mut self.num_particles);
+        run_ui(&self.ctx);
 
         let output = self.ctx.end_frame();
         self.clipped_shapes = self.ctx.tessellate(output.shapes, output.pixels_per_point);
@@ -88,6 +82,15 @@ impl EguiIntegration {
             .render(rpass, &self.clipped_shapes, &screen_descriptor);
     }
 
+    pub fn modifiers_event(&mut self, event: winit::event::Modifiers) {
+        let state = event.state();
+        self.modifiers.alt = state.alt_key();
+        self.modifiers.ctrl = state.control_key();
+        self.modifiers.shift = state.shift_key();
+        self.modifiers.mac_cmd = state.super_key();
+        self.modifiers.command = state.control_key() | state.super_key();
+    }
+
     pub fn key_event(&mut self, event: winit::event::KeyEvent) -> Option<()> {
         let pressed = matches!(event.state, winit::event::ElementState::Pressed);
         let repeat = event.repeat;
@@ -115,7 +118,7 @@ impl EguiIntegration {
             physical_key,
             pressed,
             repeat,
-            modifiers: egui::Modifiers::default(),
+            modifiers: self.modifiers,
         });
         None
     }
@@ -140,7 +143,7 @@ impl EguiIntegration {
             pos: egui::Pos2::new(position.x, position.y),
             button,
             pressed,
-            modifiers: egui::Modifiers::default(),
+            modifiers: self.modifiers,
         });
     }
 
