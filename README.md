@@ -24,6 +24,4 @@ use `frame_buffer_to_video.sh` and input the parameters given from `stdout` when
 ### Low Framerate (FPS)?  
 
 the frames will be captured at a locked framerate  
-if `30` fps is selected you'll get a `30` fps output.  
-
-Here's an example: [32768 Particles at 30 FPS](./gallery/32768.mp4)
+if `30` fps is selected you'll get a `30` fps output.
