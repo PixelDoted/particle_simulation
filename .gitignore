@@ -1,5 +1,6 @@
 /target
 /.cargo
+/gallery
 Cargo.lock
 
 frame_buffer.bin
