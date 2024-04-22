@@ -1,6 +1,6 @@
 # Gpu Particle Simulation
 
-![16384 Particles preview banner](./gallery/16384_banner.png)
+![16384 Particles preview banner](./16384_banner.png)
 A [Newtonian Gravity](https://en.wikipedia.org/wiki/Newton%27s_law_of_universal_gravitation) particle simulation on the GPU  
 
 ## Keybindings
