@@ -35,6 +35,7 @@ struct AppState {
     view_zoom: f32,
 
     is_paused: bool,
+    step: bool,
     framerate: u32,
     instant: std::time::Instant,
 }
@@ -118,6 +119,7 @@ async fn main() {
         view_zoom: 1.0,
 
         is_paused: true,
+        step: false,
         framerate: args.framerate,
         instant: std::time::Instant::now(),
     };
@@ -169,6 +171,10 @@ async fn main() {
                             }
                         }
 
+                        (ElementState::Pressed, PhysicalKey::Code(KeyCode::KeyN)) => {
+                            app_state.step = true;
+                        }
+
                         (ElementState::Pressed, PhysicalKey::Code(KeyCode::KeyF)) => {
                             follow_module.enabled = !follow_module.enabled;
                         }
@@ -209,7 +215,6 @@ async fn main() {
                     event: WindowEvent::MouseInput { state, button, .. },
                     ..
                 } => {
-                    let mut handled = true;
                     match (state, button) {
                         // (ElementState::Pressed, MouseButton::Left) => is_left_click_pressed = true,
                         // (ElementState::Released, MouseButton::Left) => is_left_click_pressed = false,
@@ -219,11 +224,9 @@ async fn main() {
                         (ElementState::Released, MouseButton::Right) => {
                             app_state.is_right_click_pressed = false
                         }
-                        _ => handled = false,
-                    }
-
-                    if !handled {
-                        egui_integration.mouse_event(app_state.mouse_position, state, button);
+                        (state, button) => {
+                            egui_integration.mouse_event(app_state.mouse_position, state, button)
+                        }
                     }
                 }
                 Event::WindowEvent {
@@ -270,9 +273,11 @@ async fn main() {
                     let frame = surface.get_current_texture().unwrap();
                     let mut encoder = device
                         .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-                    if !app_state.is_paused {
+                    if !app_state.is_paused || app_state.step {
                         let _cpass = physics_module
                             .begin_pass(&mut encoder, num_particles / PARTICLES_PER_WORKGROUP);
+
+                        app_state.step = false;
                     }
 
                     {
@@ -398,8 +403,8 @@ async fn main() {
                         follow_module.copy_buffer_to_buffer(&mut encoder);
                     }
 
+                    #[cfg(feature = "capture")]
                     {
-                        #[cfg(feature = "capture")]
                         capture_module.begin_pass(
                             &mut encoder,
                             &render_module,
@@ -407,7 +412,6 @@ async fn main() {
                             num_particles,
                         );
 
-                        #[cfg(feature = "capture")]
                         capture_module.copy_texture_to_buffer(&mut encoder);
                     }
 

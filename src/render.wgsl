@@ -1,9 +1,12 @@
 @group(0)
 @binding(0)
+var<uniform> screen_size: vec2<f32>;
+
+@group(0)
+@binding(1)
 var<uniform> view: View;
 
 struct View {
-    size: vec2<f32>,
     offset: vec2<f32>,
     zoom: f32,
 }
@@ -22,22 +25,28 @@ fn vertex(
     @location(1) particle_velocity: vec2<f32>,
     @location(2) _particle_radius: f32,
     @location(3) particle_mass: f32,
+    @location(4) position: vec2<f32>,
 ) -> VertexOutput {
     if particle_mass == 0.0 {
         return VertexOutput();
     }
 
+    var pos = position + vec2<f32>(0.0, 0.38);
+    // let angle = -atan2(particle_velocity.x, particle_velocity.y);
+    // pos = vec2<f32>(
+        // pos.x * cos(angle) - pos.y * sin(angle),
+        // pos.x * sin(angle) + pos.y * cos(angle),
+    // );
+
     let particle_position = (_particle_position + view.offset) * view.zoom;
     let particle_radius = _particle_radius * view.zoom * 1.7;
-
-    var x = f32(i32(in_vertex_index) - 1) * particle_radius + particle_position.x;
-    var y = (f32(in_vertex_index & 1u) * 2 - 0.62) * particle_radius + particle_position.y;
+    pos = pos * particle_radius + particle_position;
 
     var result: VertexOutput;
     result.velocity = particle_velocity;
     result.radius = particle_radius;
     result.position = particle_position;
-    result.coord_in = vec4<f32>(vec2<f32>(x * 512, y * 512) / view.size, 0.0, 1.0);
+    result.coord_in = vec4<f32>((pos * 500) / screen_size, 0.0, 1.0);
     return result;
 }
 
@@ -47,9 +56,9 @@ fn fragment(result: VertexOutput) -> @location(0) vec4<f32> {
         discard;
     }
 
-    var uv = (result.coord_in.xy - 0.5 * view.size);
-    let pos = result.position * vec2<f32>(0.5, -0.5) * 512;
-    let radius = result.radius * 155;
+    var uv = (result.coord_in.xy - 0.5 * screen_size);
+    let pos = result.position * vec2<f32>(0.5, -0.5) * 500;
+    let radius = result.radius * 150;
 
     let dist = length(uv - pos);
     if dist > radius {
