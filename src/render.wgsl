@@ -34,8 +34,8 @@ fn vertex(
     var pos = position + vec2<f32>(0.0, 0.38);
     // let angle = -atan2(particle_velocity.x, particle_velocity.y);
     // pos = vec2<f32>(
-        // pos.x * cos(angle) - pos.y * sin(angle),
-        // pos.x * sin(angle) + pos.y * cos(angle),
+    //     pos.x * cos(angle) - pos.y * sin(angle),
+    //     pos.x * sin(angle) + pos.y * cos(angle),
     // );
 
     let particle_position = (_particle_position + view.offset) * view.zoom;

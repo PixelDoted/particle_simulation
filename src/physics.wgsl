@@ -39,7 +39,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
     let pre_vel = current.velocity;
     var offset = vec2<f32>(0.0);
-    var forces = vec2<f32>(0.0);
+    var gravity_forces = vec2<f32>(0.0);
+    var collision_forces = vec2<f32>(0.0);
 
     var i: u32 = 0;
     loop {
@@ -69,26 +70,26 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
             let penetration_depth = rr - oc_len;
 
             let pre_solve_normal_vel = dot(pre_vel - other.velocity, normal);
-            let normal_vel = dot(current.velocity - other.velocity, normal);
+            let normal_vel = dot((current.velocity + collision_forces) - other.velocity, normal);
             let restitution = 0.4;
 
             let w0 = 1.0 / current.mass;
             let w1 = 1.0 / other.mass;
 
             offset -= normal * penetration_depth * w0 / (w1 + w0);
-            current.velocity += normal * (-normal_vel - restitution * pre_solve_normal_vel) * w0 / (w1 + w0);
+            collision_forces += normal * (-normal_vel - restitution * pre_solve_normal_vel) * w0 / (w1 + w0);
         }
         
         // Newtonian
         let force = current.mass * other.mass / max(oc_len, 0.01) * params.gravitational_constant;
-        forces += normal * force;
+        gravity_forces += normal * force;
 
         continuing {
             i = i + 1u;
         }
     }
 
-    current.velocity += forces;
+    current.velocity += gravity_forces + collision_forces;
     current.position += offset + current.velocity * params.delta_time;
     output[index] = current;
 }

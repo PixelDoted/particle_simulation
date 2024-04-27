@@ -1,5 +1,6 @@
 mod cli;
 mod follow;
+mod framepace;
 mod gui;
 mod particle;
 mod physics;
@@ -13,6 +14,7 @@ use std::sync::Arc;
 use clap::Parser;
 use egui::Widget;
 use follow::FollowModule;
+use framepace::Framepacer;
 use glam::Vec2;
 use gui::EguiIntegration;
 use log::warn;
@@ -37,7 +39,6 @@ struct AppState {
     is_paused: bool,
     step: bool,
     framerate: u32,
-    instant: std::time::Instant,
 }
 
 #[tokio::main]
@@ -111,6 +112,7 @@ async fn main() {
     // State
     let mut egui_integration = EguiIntegration::new(&device, swapchain_format);
 
+    let mut framepace = Framepacer::new();
     let mut app_state = AppState {
         is_right_click_pressed: false,
         mouse_position: Vec2::ZERO,
@@ -121,7 +123,6 @@ async fn main() {
         is_paused: true,
         step: false,
         framerate: args.framerate,
-        instant: std::time::Instant::now(),
     };
 
     // Main Loop
@@ -251,24 +252,13 @@ async fn main() {
                 }
 
                 Event::AboutToWait => {
-                    if app_state.framerate > 0 {
-                        let frame_time = 1.0 / app_state.framerate as f32;
-                        while app_state.instant.elapsed().as_secs_f32() < frame_time {
-                            let left = frame_time - app_state.instant.elapsed().as_secs_f32();
-                            if left < 0.00025 {
-                                continue;
-                            }
-
-                            std::thread::yield_now();
-                        }
-                    } else if capture_module.enabled {
+                    if capture_module.enabled && app_state.framerate == 0 {
                         capture_module.enabled = false;
                         warn!("The `capture` module can't run without a limited framerate.");
                     }
 
-                    let delta_time = app_state.instant.elapsed().as_secs_f32();
                     physics_module.update_delta_time(&queue, args.time_scale);
-                    app_state.instant = std::time::Instant::now();
+                    framepace.begin_frame();
 
                     let frame = surface.get_current_texture().unwrap();
                     let mut encoder = device
@@ -290,7 +280,7 @@ async fn main() {
                                         .suffix(" Fixed FPS")
                                         .ui(ui);
 
-                                    ui.label(format!("FPS {:.1}", 1.0 / delta_time));
+                                    ui.label(format!("FPS {:.1}", framepace.framerate()));
                                 });
 
                             egui::Window::new("Simulation")
@@ -446,6 +436,8 @@ async fn main() {
                             }
                         }
                     }
+
+                    framepace.end_frame(1.0 / app_state.framerate as f32);
                 }
 
                 _ => (),
