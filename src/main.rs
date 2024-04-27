@@ -370,7 +370,12 @@ async fn main() {
                                 });
                         });
 
-                        egui_integration.pre_render(&device, &queue, &mut encoder);
+                        egui_integration.pre_render(
+                            &device,
+                            &queue,
+                            &mut encoder,
+                            framepace.frametime(),
+                        );
                     }
 
                     {

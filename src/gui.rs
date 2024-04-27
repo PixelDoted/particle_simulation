@@ -47,7 +47,10 @@ impl EguiIntegration {
         device: &'a wgpu::Device,
         queue: &'a wgpu::Queue,
         encoder: &'a mut wgpu::CommandEncoder,
+        delta_time: f32,
     ) {
+        self.raw_input.predicted_dt = delta_time;
+
         let screen_rect = self.ctx.screen_rect();
         let screen_descriptor = egui_wgpu::ScreenDescriptor {
             size_in_pixels: [screen_rect.width() as u32, screen_rect.height() as u32],
