@@ -64,7 +64,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         if oc_len <= 1e-8 {
             continue;
         }
-        
+
         if oc_len < rr {
             // Collision
             let penetration_depth = rr - oc_len;

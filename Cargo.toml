@@ -1,6 +1,6 @@
 [package]
 name = "particle_simulation"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 
 # Enable a small amount of optimization in debug mode
