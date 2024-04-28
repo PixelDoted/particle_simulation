@@ -6,6 +6,7 @@ mod gui;
 mod particle;
 mod physics;
 mod render;
+mod utils;
 
 #[cfg(feature = "capture")]
 mod capture;
@@ -21,6 +22,7 @@ use glam::Vec2;
 use gpu::GpuContext;
 use gui::EguiIntegration;
 use log::warn;
+use utils::{multiple_of, Exists};
 use winit::{
     application::ApplicationHandler,
     event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent},
@@ -33,26 +35,78 @@ use crate::{physics::PhysicsModule, render::RenderModule};
 
 pub const PARTICLES_PER_WORKGROUP: u32 = 256;
 
-struct GfxState<'a> {
+fn main() -> anyhow::Result<()> {
+    env_logger::builder()
+        .filter_level(log::LevelFilter::Info)
+        .parse_default_env()
+        .init();
+
+    // Collect Arguments
+    let args = cli::Args::parse();
+
+    // Setup Winit
+    let event_loop = EventLoop::new().unwrap();
+    event_loop.set_control_flow(ControlFlow::Poll);
+
+    // State
+    let mut app_state = AppState {
+        tokio_rt: tokio::runtime::Runtime::new()?,
+        gpu: Exists::None,
+        gfx: Exists::None,
+        sim: SimulationState {
+            physics_module: Exists::None,
+            follow_module: Exists::None,
+
+            gravity: args.gravity,
+            particles: args.particles,
+
+            edited_gravity: args.gravity,
+            edited_particles: args.particles,
+        },
+        framepace: Framepacer::new(),
+
+        is_right_click_pressed: false,
+        mouse_position: Vec2::ZERO,
+
+        view_offset: Vec2::ZERO,
+        view_zoom: 1.0,
+
+        time_scale: args.time_scale,
+        is_paused: true,
+        step: false,
+        framerate: args.framerate,
+    };
+
+    event_loop.run_app(&mut app_state)?;
+    Ok(())
+}
+
+struct GfxState {
     window: Arc<Window>,
-    gpu: GpuContext<'a>,
     egui: EguiIntegration,
 
-    physics_module: PhysicsModule,
     render_module: RenderModule,
-    follow_module: FollowModule,
     #[cfg(feature = "capture")]
     capture_module: CaptureModule,
 }
 
-struct AppState<'a> {
-    tokio_rt: tokio::runtime::Runtime,
-    gfx: Option<GfxState<'a>>,
-    framepace: Framepacer,
+struct SimulationState {
+    physics_module: Exists<PhysicsModule>,
+    follow_module: Exists<FollowModule>,
 
     gravity: f32,
-    num_particles: u32,
-    new_num_particles: u32,
+    particles: u32,
+
+    edited_gravity: f32,
+    edited_particles: u32,
+}
+
+struct AppState<'a> {
+    tokio_rt: tokio::runtime::Runtime,
+    gpu: Exists<GpuContext<'a>>,
+    gfx: Exists<GfxState>,
+    sim: SimulationState,
+    framepace: Framepacer,
 
     is_right_click_pressed: bool,
     mouse_position: Vec2,
@@ -82,15 +136,10 @@ impl<'a> ApplicationHandler for AppState<'a> {
         let surface_capabilities = gpu.surface_capabilities();
         let surface_format = surface_capabilities.formats[0];
 
-        let buffer_particles = if self.num_particles % PARTICLES_PER_WORKGROUP > 0 {
-            self.num_particles + PARTICLES_PER_WORKGROUP
-                - self.num_particles % PARTICLES_PER_WORKGROUP
-        } else {
-            self.num_particles
-        };
+        let buffer_particles = multiple_of(self.sim.particles, PARTICLES_PER_WORKGROUP);
 
         let physics_module =
-            PhysicsModule::new(&gpu.device, buffer_particles as usize, self.gravity);
+            PhysicsModule::new(&gpu.device, buffer_particles as usize, self.sim.gravity);
         let render_module = RenderModule::new(&gpu.device, surface_format);
         let follow_module = FollowModule::new(&gpu.device, &physics_module.particle_buffers);
 
@@ -102,7 +151,7 @@ impl<'a> ApplicationHandler for AppState<'a> {
             window_size.height,
         );
 
-        particle::generate_particles(&gpu.queue, &physics_module, self.num_particles as u64);
+        particle::generate_particles(&gpu.queue, &physics_module, self.sim.particles as u64);
         render_module.update_all(
             &gpu.queue,
             window_size.width,
@@ -112,17 +161,17 @@ impl<'a> ApplicationHandler for AppState<'a> {
             1.0,
         );
 
-        self.gfx = Some(GfxState {
+        self.gfx = Exists::Some(GfxState {
             window,
             egui: EguiIntegration::new(&gpu.device, surface_format),
-            gpu,
 
-            physics_module,
             render_module,
-            follow_module,
             #[cfg(feature = "capture")]
             capture_module,
         });
+        self.sim.physics_module = Exists::Some(physics_module);
+        self.sim.follow_module = Exists::Some(follow_module);
+        self.gpu = Exists::Some(gpu);
     }
 
     fn window_event(
@@ -131,9 +180,9 @@ impl<'a> ApplicationHandler for AppState<'a> {
         _window_id: winit::window::WindowId,
         event: WindowEvent,
     ) {
-        let Some(gfx) = &mut self.gfx else {
+        if self.gfx.is_none() {
             return;
-        };
+        }
 
         match event {
             WindowEvent::CloseRequested => {
@@ -141,19 +190,22 @@ impl<'a> ApplicationHandler for AppState<'a> {
             }
 
             WindowEvent::Resized(new_size) => {
-                gfx.gpu.config.width = new_size.width;
-                gfx.gpu.config.height = new_size.height;
-                gfx.gpu.reconfigure_surface();
+                self.gpu.config.width = new_size.width;
+                self.gpu.config.height = new_size.height;
+                self.gpu.reconfigure_surface();
 
-                gfx.render_module
-                    .update_size(&gfx.gpu.queue, new_size.width, new_size.height);
-                gfx.egui.resize(new_size.width, new_size.height);
+                self.gfx.render_module.update_size(
+                    &self.gpu.queue,
+                    new_size.width,
+                    new_size.height,
+                );
+                self.gfx.egui.resize(new_size.width, new_size.height);
 
-                let surface_capabilities = gfx.gpu.surface_capabilities();
+                let surface_capabilities = self.gpu.surface_capabilities();
 
                 #[cfg(feature = "capture")]
-                gfx.capture_module.resize(
-                    &gfx.gpu.device,
+                self.gfx.capture_module.resize(
+                    &self.gpu.device,
                     surface_capabilities.formats[0],
                     new_size.width,
                     new_size.height,
@@ -166,11 +218,12 @@ impl<'a> ApplicationHandler for AppState<'a> {
                         self.is_paused = !self.is_paused;
                     }
                     (ElementState::Pressed, PhysicalKey::Code(KeyCode::F11)) => {
-                        if gfx.window.fullscreen().is_none() {
-                            gfx.window
+                        if self.gfx.window.fullscreen().is_none() {
+                            self.gfx
+                                .window
                                 .set_fullscreen(Some(winit::window::Fullscreen::Borderless(None)));
                         } else {
-                            gfx.window.set_fullscreen(None);
+                            self.gfx.window.set_fullscreen(None);
                         }
                     }
 
@@ -179,23 +232,23 @@ impl<'a> ApplicationHandler for AppState<'a> {
                     }
 
                     (ElementState::Pressed, PhysicalKey::Code(KeyCode::KeyF)) => {
-                        gfx.follow_module.enabled = !gfx.follow_module.enabled;
+                        self.sim.follow_module.enabled = !self.sim.follow_module.enabled;
                     }
 
                     #[cfg(feature = "capture")]
                     (ElementState::Pressed, PhysicalKey::Code(KeyCode::KeyC)) => {
-                        gfx.capture_module.enabled = !gfx.capture_module.enabled;
+                        self.gfx.capture_module.enabled = !self.gfx.capture_module.enabled;
                     }
 
                     _ => handled = false,
                 };
 
                 if !handled {
-                    gfx.egui.key_event(event);
+                    self.gfx.egui.key_event(event);
                 }
             }
             WindowEvent::ModifiersChanged(modifiers) => {
-                gfx.egui.modifiers_event(modifiers);
+                self.gfx.egui.modifiers_event(modifiers);
             }
             WindowEvent::MouseWheel { delta, .. } => {
                 let delta = match delta {
@@ -205,13 +258,17 @@ impl<'a> ApplicationHandler for AppState<'a> {
                     * self.view_zoom;
 
                 self.view_zoom = (self.view_zoom + delta).clamp(0.01, 10.0);
-                gfx.render_module
-                    .update_zoom(&gfx.gpu.queue, self.view_zoom);
+                self.gfx
+                    .render_module
+                    .update_zoom(&self.gpu.queue, self.view_zoom);
             }
             WindowEvent::MouseInput { state, button, .. } => match (state, button) {
                 (ElementState::Pressed, MouseButton::Right) => self.is_right_click_pressed = true,
                 (ElementState::Released, MouseButton::Right) => self.is_right_click_pressed = false,
-                (state, button) => gfx.egui.mouse_event(self.mouse_position, state, button),
+                (state, button) => self
+                    .gfx
+                    .egui
+                    .mouse_event(self.mouse_position, state, button),
             },
             WindowEvent::CursorMoved { position, .. } => {
                 let position = Vec2::new(position.x as f32, position.y as f32);
@@ -219,14 +276,14 @@ impl<'a> ApplicationHandler for AppState<'a> {
                     let delta = position - self.mouse_position;
                     self.view_offset += delta * Vec2::new(1.0, -1.0) * 0.005 / self.view_zoom;
 
-                    gfx.render_module.update_offset(
-                        &gfx.gpu.queue,
+                    self.gfx.render_module.update_offset(
+                        &self.gpu.queue,
                         self.view_offset.x,
                         self.view_offset.y,
                     );
                 }
 
-                gfx.egui.mouse_motion(position);
+                self.gfx.egui.mouse_motion(position);
                 self.mouse_position = position;
             }
 
@@ -235,33 +292,38 @@ impl<'a> ApplicationHandler for AppState<'a> {
     }
 
     fn about_to_wait(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop) {
-        let Some(gfx) = &mut self.gfx else {
+        if self.gpu.is_none()
+            || self.sim.physics_module.is_none()
+            || self.sim.follow_module.is_none()
+        {
             return;
-        };
+        }
 
-        if gfx.capture_module.enabled && self.framerate == 0 {
-            gfx.capture_module.enabled = false;
+        if self.gfx.capture_module.enabled && self.framerate == 0 {
+            self.gfx.capture_module.enabled = false;
             warn!("The `capture` module can't run without a limited framerate.");
         }
 
-        gfx.physics_module
-            .update_delta_time(&gfx.gpu.queue, self.time_scale);
+        self.sim
+            .physics_module
+            .update_delta_time(&self.gpu.queue, self.time_scale);
         self.framepace.begin_frame();
 
-        let frame = gfx.gpu.surface.get_current_texture().unwrap();
-        let mut encoder = gfx
+        let frame = self.gpu.surface.get_current_texture().unwrap();
+        let mut encoder = self
             .gpu
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         if !self.is_paused || self.step {
-            let _cpass = gfx
+            let _cpass = self
+                .sim
                 .physics_module
-                .begin_pass(&mut encoder, self.num_particles / PARTICLES_PER_WORKGROUP);
+                .begin_pass(&mut encoder, self.sim.particles / PARTICLES_PER_WORKGROUP);
 
             self.step = false;
         }
 
-        {
+        if let Exists::Some(gfx) = &mut self.gfx {
             gfx.egui.run(|ctx| {
                 egui::Window::new("Settings")
                     .default_width(145.0)
@@ -279,42 +341,52 @@ impl<'a> ApplicationHandler for AppState<'a> {
                     .show(ctx, |ui| {
                         ui.label(format!(
                             "Center of Mass\nx: {}\ny: {}",
-                            gfx.follow_module.info.center_of_mass.x,
-                            gfx.follow_module.info.center_of_mass.y,
+                            self.sim.follow_module.info.center_of_mass.x,
+                            self.sim.follow_module.info.center_of_mass.y,
                         ));
                         ui.add_space(5.0);
                         ui.label(format!(
                             "Avg Velocity\nx: {}\ny: {}",
-                            gfx.follow_module.info.avg_velocity.x,
-                            gfx.follow_module.info.avg_velocity.y,
+                            self.sim.follow_module.info.avg_velocity.x,
+                            self.sim.follow_module.info.avg_velocity.y,
                         ));
                         ui.add_space(5.0);
 
                         ui.separator();
-                        egui::DragValue::new(&mut self.new_num_particles)
+                        egui::DragValue::new(&mut self.sim.edited_gravity)
+                            .suffix(" Gravity")
+                            .ui(ui);
+                        egui::DragValue::new(&mut self.sim.edited_particles)
                             .suffix(" Particles")
                             .ui(ui);
 
-                        if ui.button("Regenerate").clicked() && self.new_num_particles > 0 {
-                            if self.num_particles != self.new_num_particles {
+                        if ui.button("Apply").clicked()
+                            && self.sim.edited_particles > 0
+                            && self.sim.edited_gravity > 0.0
+                        {
+                            if self.sim.particles != self.sim.edited_particles {
                                 let buffer_particles =
-                                    if self.new_num_particles % PARTICLES_PER_WORKGROUP > 0 {
-                                        self.new_num_particles + PARTICLES_PER_WORKGROUP
-                                            - self.new_num_particles % PARTICLES_PER_WORKGROUP
-                                    } else {
-                                        self.new_num_particles
-                                    };
+                                    multiple_of(self.sim.edited_particles, PARTICLES_PER_WORKGROUP);
 
-                                gfx.physics_module
-                                    .resize_buffers(&gfx.gpu.device, buffer_particles as usize);
+                                self.sim
+                                    .physics_module
+                                    .resize_buffers(&self.gpu.device, buffer_particles as usize);
+
+                                self.sim.particles = self.sim.edited_particles;
+                                particle::generate_particles(
+                                    &self.gpu.queue,
+                                    &self.sim.physics_module,
+                                    self.sim.particles as u64,
+                                );
                             }
 
-                            self.num_particles = self.new_num_particles;
-                            particle::generate_particles(
-                                &gfx.gpu.queue,
-                                &gfx.physics_module,
-                                self.num_particles as u64,
-                            );
+                            if self.sim.gravity != self.sim.edited_gravity {
+                                self.sim.gravity = self.sim.edited_gravity;
+                                self.sim.physics_module.update_gravitational_constant(
+                                    &self.gpu.queue,
+                                    self.sim.gravity,
+                                );
+                            }
                         }
                     });
 
@@ -329,9 +401,9 @@ impl<'a> ApplicationHandler for AppState<'a> {
                         ui.add_space(10.0);
                         ui.heading("Follow");
                         ui.separator();
-                        ui.checkbox(&mut gfx.follow_module.enabled, "Enabled [f]");
-                        ui.checkbox(&mut gfx.follow_module.center_of_mass, "Center of Mass");
-                        ui.checkbox(&mut gfx.follow_module.auto_zoom, "Auto Zoom");
+                        ui.checkbox(&mut self.sim.follow_module.enabled, "Enabled [f]");
+                        ui.checkbox(&mut self.sim.follow_module.center_of_mass, "Center of Mass");
+                        ui.checkbox(&mut self.sim.follow_module.auto_zoom, "Auto Zoom");
                     });
 
                 egui::Window::new("Capture")
@@ -353,118 +425,83 @@ impl<'a> ApplicationHandler for AppState<'a> {
             });
 
             gfx.egui.pre_render(
-                &gfx.gpu.device,
-                &gfx.gpu.queue,
+                &self.gpu.device,
+                &self.gpu.queue,
                 &mut encoder,
                 self.framepace.frametime(),
             );
+
+            // Render
+            {
+                let view = frame
+                    .texture
+                    .create_view(&wgpu::TextureViewDescriptor::default());
+
+                let mut rpass = gfx.render_module.begin_pass(
+                    &mut encoder,
+                    &view,
+                    self.sim.physics_module.current_buffer(),
+                    self.sim.particles,
+                );
+
+                gfx.egui.render(&mut rpass);
+            }
+
+            // Capture
+            #[cfg(feature = "capture")]
+            {
+                gfx.capture_module.begin_pass(
+                    &mut encoder,
+                    &gfx.render_module,
+                    self.sim.physics_module.current_buffer(),
+                    self.sim.particles,
+                );
+
+                gfx.capture_module.copy_texture_to_buffer(&mut encoder);
+            }
         }
 
-        {
-            let view = frame
-                .texture
-                .create_view(&wgpu::TextureViewDescriptor::default());
-
-            let mut rpass = gfx.render_module.begin_pass(
-                &mut encoder,
-                &view,
-                gfx.physics_module.current_buffer(),
-                self.num_particles,
-            );
-
-            gfx.egui.render(&mut rpass);
+        if self.sim.follow_module.enabled {
+            self.sim
+                .follow_module
+                .begin_pass(&mut encoder, self.sim.physics_module.current);
+            self.sim.follow_module.copy_buffer_to_buffer(&mut encoder);
         }
 
-        if gfx.follow_module.enabled {
-            gfx.follow_module
-                .begin_pass(&mut encoder, gfx.physics_module.current);
-            gfx.follow_module.copy_buffer_to_buffer(&mut encoder);
-        }
-
-        #[cfg(feature = "capture")]
-        {
-            gfx.capture_module.begin_pass(
-                &mut encoder,
-                &gfx.render_module,
-                gfx.physics_module.current_buffer(),
-                self.num_particles,
-            );
-
-            gfx.capture_module.copy_texture_to_buffer(&mut encoder);
-        }
-
-        gfx.gpu.queue.submit(Some(encoder.finish()));
+        self.gpu.queue.submit(Some(encoder.finish()));
         frame.present();
 
-        {
-            #[cfg(feature = "capture")]
-            gfx.capture_module.get_frame(&gfx.gpu.device);
+        #[cfg(feature = "capture")]
+        if let Exists::Some(gfx) = &mut self.gfx {
+            gfx.capture_module.get_frame(&self.gpu.device);
         }
 
-        if gfx.follow_module.enabled {
-            if let Some(output) = gfx.follow_module.get_data(&gfx.gpu.device) {
-                gfx.follow_module.info = output;
+        if self.sim.follow_module.enabled {
+            if let Some(output) = self.sim.follow_module.get_data(&self.gpu.device) {
+                self.sim.follow_module.info = output;
 
-                if gfx.follow_module.center_of_mass {
+                if self.sim.follow_module.center_of_mass {
                     self.view_offset = -output.center_of_mass;
-                    gfx.render_module.update_offset(
-                        &gfx.gpu.queue,
+                    self.gfx.render_module.update_offset(
+                        &self.gpu.queue,
                         self.view_offset.x,
                         self.view_offset.y,
                     );
                 }
 
-                if gfx.follow_module.auto_zoom {
-                    let size = (gfx.follow_module.info.max_position
-                        - gfx.follow_module.info.min_position)
+                if self.sim.follow_module.auto_zoom {
+                    let size = (self.sim.follow_module.info.max_position
+                        - self.sim.follow_module.info.min_position)
                         .abs();
 
                     self.view_zoom = size.length_recip().powf(0.75);
-                    gfx.render_module
-                        .update_zoom(&gfx.gpu.queue, self.view_zoom);
+                    self.gfx
+                        .render_module
+                        .update_zoom(&self.gpu.queue, self.view_zoom);
                 }
             }
         }
 
         self.framepace.end_frame(1.0 / self.framerate as f32);
     }
-}
-
-fn main() -> anyhow::Result<()> {
-    env_logger::builder()
-        .filter_level(log::LevelFilter::Info)
-        .parse_default_env()
-        .init();
-
-    // Collect Arguments
-    let args = cli::Args::parse();
-
-    // Setup Winit
-    let event_loop = EventLoop::new().unwrap();
-    event_loop.set_control_flow(ControlFlow::Poll);
-
-    // State
-    let mut app_state = AppState {
-        tokio_rt: tokio::runtime::Runtime::new()?,
-        gfx: None,
-        framepace: Framepacer::new(),
-
-        gravity: args.gravity,
-        num_particles: args.particles,
-        new_num_particles: args.particles,
-
-        is_right_click_pressed: false,
-        mouse_position: Vec2::ZERO,
-
-        view_offset: Vec2::ZERO,
-        view_zoom: 1.0,
-
-        time_scale: args.time_scale,
-        is_paused: true,
-        step: false,
-        framerate: args.framerate,
-    };
-
-    event_loop.run_app(&mut app_state)?;
-    Ok(())
 }
