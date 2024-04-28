@@ -33,6 +33,7 @@ use winit::{
 
 use crate::{physics::PhysicsModule, render::RenderModule};
 
+pub const WINDOW_TITLE: &str = "Particle Simulation";
 pub const PARTICLES_PER_WORKGROUP: u32 = 256;
 
 fn main() -> anyhow::Result<()> {
@@ -128,6 +129,7 @@ impl<'a> ApplicationHandler for AppState<'a> {
                 .unwrap(),
         );
         let window_size = window.inner_size();
+        window.set_title(WINDOW_TITLE);
 
         let gpu = self
             .tokio_rt
@@ -299,6 +301,7 @@ impl<'a> ApplicationHandler for AppState<'a> {
             return;
         }
 
+        #[cfg(feature = "capture")]
         if self.gfx.capture_module.enabled && self.framerate == 0 {
             self.gfx.capture_module.enabled = false;
             warn!("The `capture` module can't run without a limited framerate.");
