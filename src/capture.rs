@@ -3,7 +3,7 @@
 use log::info;
 use std::{io::Write, path::PathBuf};
 
-use crate::render::RenderModule;
+use crate::{render::RenderModule, utils::multiple_of};
 
 pub struct CaptureModule {
     pub enabled: bool,
@@ -178,13 +178,4 @@ impl CaptureModule {
             panic!("Failed to get view texture.");
         }
     }
-}
-
-fn multiple_of(mut value: u32, multiple: u32) -> u32 {
-    let remainder = value % multiple;
-    if remainder != 0 {
-        value += multiple - remainder;
-    }
-
-    value
 }
