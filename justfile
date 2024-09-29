@@ -1,8 +1,4 @@
-set export
-alias r := run
-alias b := build
-
-run *ARGS:
+dev *ARGS:
     cargo r {{ARGS}}
 
 build:
